@@ -54,6 +54,8 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (NSArray *)allObjects;
 
+- (void)removeObjectForKey:(id<NSCopying>)key;
+
 @end
 
 NS_ASSUME_NONNULL_END

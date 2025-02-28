@@ -22,7 +22,7 @@
 #import "XCUIElement+FBResolve.h"
 #import "XCUIElementQuery.h"
 
-const int ELEMENT_CACHE_SIZE = 1024;
+const int ELEMENT_CACHE_SIZE = 512;
 
 @interface FBElementCache ()
 @property (nonatomic, strong) LRUCache *elementCache;
@@ -54,7 +54,7 @@ const int ELEMENT_CACHE_SIZE = 1024;
 
 - (XCUIElement *)elementForUUID:(NSString *)uuid
 {
-  return [self elementForUUID:uuid checkStaleness:NO];
+  return [self elementForUUID:uuid checkStaleness:YES];
 }
 
 - (XCUIElement *)elementForUUID:(NSString *)uuid checkStaleness:(BOOL)checkStaleness
@@ -73,7 +73,13 @@ const int ELEMENT_CACHE_SIZE = 1024;
     @throw [NSException exceptionWithName:FBStaleElementException reason:reason userInfo:@{}];
   }
   if (checkStaleness) {
-    [element fb_takeSnapshot:NO];
+    @try {
+      [element fb_takeSnapshot:NO];
+    }
+    @catch (NSException *exception) {
+      [self.elementCache removeObjectForKey:uuid];
+      @throw exception;
+    }
   }
   return element;
 }
