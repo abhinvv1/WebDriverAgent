@@ -79,9 +79,23 @@
   return [self fb_takeSnapshot:YES];
 }
 
-- (id<FBXCElementSnapshot>)fb_cachedSnapshot
-{
-  return [self.query fb_cachedSnapshot];
+- (id<FBXCElementSnapshot>)fb_cachedSnapshot {
+  static NSMapTable *snapshotCache;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    snapshotCache = [NSMapTable weakToWeakObjectsMapTable];
+  });
+  
+  @synchronized(snapshotCache) {
+    id<FBXCElementSnapshot> snapshot = [snapshotCache objectForKey:self];
+    if (snapshot && [snapshot isKindOfClass:XCElementSnapshot.class] && snapshot.isValid) {
+      return snapshot;
+    }
+    
+    snapshot = [self fb_snapshotWithAttributes:nil];
+    [snapshotCache setObject:snapshot forKey:self];
+    return snapshot;
+  }
 }
 
 - (NSArray<XCUIElement *> *)fb_filterDescendantsWithSnapshots:(NSArray<id<FBXCElementSnapshot>> *)snapshots

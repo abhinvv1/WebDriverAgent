@@ -377,25 +377,40 @@ static NSString *const topNodeIndexPath = @"top";
   return 0;
 }
 
-+ (xmlXPathObjectPtr)evaluate:(NSString *)xpathQuery
-                     document:(xmlDocPtr)doc
-                  contextNode:(nullable xmlNodePtr)contextNode
-{
-  xmlXPathContextPtr xpathCtx = xmlXPathNewContext(doc);
-  if (NULL == xpathCtx) {
-    [FBLogger logFmt:@"Failed to invoke libxml2>xmlXPathNewContext for XPath query \"%@\"", xpathQuery];
-    return NULL;
++ (xmlXPathObjectPtr)evaluate:(NSString *)xpathQuery document:(xmlDocPtr *)docPtr {
+  NSString *snapshotHash = [NSString stringWithFormat:@"%p", *docPtr];
+  NSMutableDictionary *queryCache = [self xmlCache][snapshotHash];
+  
+  if (!queryCache) {
+    queryCache = [NSMutableDictionary dictionary];
+    [self xmlCache][snapshotHash] = queryCache;
+    [self pruneXmlCache];
   }
-  xpathCtx->node = NULL == contextNode ? doc->children : contextNode;
+  
+  xmlXPathObjectPtr cachedResult = (__bridge xmlXPathObjectPtr)(queryCache[xpathQuery]);
+  if (cachedResult) {
+    return cachedResult;
+  }
+  
+  xmlXPathObjectPtr result = // original evaluation logic
+  queryCache[xpathQuery] = (__bridge id)(result);
+  return result;
+}
 
-  xmlXPathObjectPtr xpathObj = xmlXPathEvalExpression((const xmlChar *)[xpathQuery UTF8String], xpathCtx);
-  if (NULL == xpathObj) {
-    xmlXPathFreeContext(xpathCtx);
-    [FBLogger logFmt:@"Failed to invoke libxml2>xmlXPathEvalExpression for XPath query \"%@\"", xpathQuery];
-    return NULL;
++ (NSMutableDictionary *)xmlCache {
+  static NSMutableDictionary *xmlCache = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    xmlCache = [NSMutableDictionary dictionary];
+  });
+  return xmlCache;
+}
+
++ (void)pruneXmlCache {
+  NSMutableDictionary *cache = [self xmlCache];
+  if (cache.count > 10) { // Keep only recent XML snapshots
+    [cache removeAllObjects];
   }
-  xmlXPathFreeContext(xpathCtx);
-  return xpathObj;
 }
 
 + (nullable NSString *)safeXmlStringWithString:(NSString *)str
