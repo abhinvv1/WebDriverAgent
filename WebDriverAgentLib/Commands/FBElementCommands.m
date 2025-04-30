@@ -562,17 +562,26 @@
 
 + (id<FBResponsePayload>)handleElementScreenshot:(FBRouteRequest *)request
 {
-  FBElementCache *elementCache = request.session.elementCache;
-  XCUIElement *element = [elementCache elementForUUID:(NSString *)request.parameters[@"uuid"]
-                                       checkStaleness:YES];
-  NSData *screenshotData = [element.screenshot PNGRepresentation];
-  if (nil == screenshotData) {
-    NSString *errMsg = [NSString stringWithFormat:@"Cannot take a screenshot of %@", element.description];
-    return FBResponseWithStatus([FBCommandStatus unableToCaptureScreenErrorWithMessage:errMsg
-                                                                             traceback:nil]);
+  @autoreleasepool {
+    FBElementCache *elementCache = request.session.elementCache;
+    XCUIElement *element = [elementCache elementForUUID:(NSString *)request.parameters[@"uuid"]
+                                        checkStaleness:YES];
+    NSData *screenshotData = nil;
+    @autoreleasepool {
+      UIImage *screenshot = element.screenshot;
+      if (nil == screenshot) {
+        NSString *errMsg = [NSString stringWithFormat:@"Cannot take a screenshot of %@", element.description];
+        return FBResponseWithStatus([FBCommandStatus unableToCaptureScreenErrorWithMessage:errMsg
+                                                                               traceback:nil]);
+      }
+      screenshotData = UIImageJPEGRepresentation(screenshot, 0.8);
+      screenshot = nil;
+    }
+    NSString *base64String = [screenshotData base64EncodedStringWithOptions:0];
+    screenshotData = nil;
+
+    return FBResponseWithObject(base64String);
   }
-  NSString *screenshot = [screenshotData base64EncodedStringWithOptions:0];
-  return FBResponseWithObject(screenshot);
 }
 
 
