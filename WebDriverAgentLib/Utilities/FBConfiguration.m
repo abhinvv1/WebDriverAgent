@@ -37,7 +37,7 @@ static BOOL FBShouldUseTestManagerForVisibilityDetection = NO;
 static BOOL FBShouldUseSingletonTestManager = YES;
 static BOOL FBShouldRespectSystemAlerts = NO;
 
-static NSUInteger FBMjpegScalingFactor = 100;
+static CGFloat FBMjpegScalingFactor = 100.0;
 static BOOL FBMjpegShouldFixOrientation = NO;
 static NSUInteger FBMjpegServerScreenshotQuality = 25;
 static NSUInteger FBMjpegServerFramerate = 10;
@@ -51,11 +51,13 @@ static BOOL FBShouldBoundElementsByIndex;
 static BOOL FBIncludeNonModalElements;
 static NSString *FBAcceptAlertButtonSelector;
 static NSString *FBDismissAlertButtonSelector;
+static NSString *FBAutoClickAlertSelector;
 static NSTimeInterval FBWaitForIdleTimeout;
 static NSTimeInterval FBAnimationCoolOffTimeout;
 static BOOL FBShouldUseCompactResponses;
 static NSString *FBElementResponseAttributes;
 static BOOL FBUseClearTextShortcut;
+static BOOL FBLimitXpathContextScope = YES;
 #if !TARGET_OS_TV
 static UIInterfaceOrientation FBScreenshotOrientation;
 #endif
@@ -147,12 +149,12 @@ static UIInterfaceOrientation FBScreenshotOrientation;
   return DefaultMjpegServerPort;
 }
 
-+ (NSUInteger)mjpegScalingFactor
++ (CGFloat)mjpegScalingFactor
 {
   return FBMjpegScalingFactor;
 }
 
-+ (void)setMjpegScalingFactor:(NSUInteger)scalingFactor {
++ (void)setMjpegScalingFactor:(CGFloat)scalingFactor {
   FBMjpegScalingFactor = scalingFactor;
 }
 
@@ -428,6 +430,16 @@ static UIInterfaceOrientation FBScreenshotOrientation;
   return FBDismissAlertButtonSelector;
 }
 
++ (void)setAutoClickAlertSelector:(NSString *)classChainSelector
+{
+  FBAutoClickAlertSelector = classChainSelector;
+}
+
++ (NSString *)autoClickAlertSelector
+{
+  return FBAutoClickAlertSelector;
+}
+
 + (void)setUseClearTextShortcut:(BOOL)enabled
 {
   FBUseClearTextShortcut = enabled;
@@ -436,6 +448,16 @@ static UIInterfaceOrientation FBScreenshotOrientation;
 + (BOOL)useClearTextShortcut
 {
   return FBUseClearTextShortcut;
+}
+
++ (BOOL)limitXpathContextScope
+{
+  return FBLimitXpathContextScope;
+}
+
++ (void)setLimitXpathContextScope:(BOOL)enabled
+{
+  FBLimitXpathContextScope = enabled;
 }
 
 #if !TARGET_OS_TV
@@ -498,11 +520,13 @@ static UIInterfaceOrientation FBScreenshotOrientation;
   FBIncludeNonModalElements = NO;
   FBAcceptAlertButtonSelector = @"";
   FBDismissAlertButtonSelector = @"";
+  FBAutoClickAlertSelector = @"";
   FBWaitForIdleTimeout = 10.;
   FBAnimationCoolOffTimeout = 2.;
   // 50 should be enough for the majority of the cases. The performance is acceptable for values up to 100.
   FBSetCustomParameterForElementSnapshot(FBSnapshotMaxDepthKey, @50);
   FBUseClearTextShortcut = YES;
+  FBLimitXpathContextScope = YES;
 #if !TARGET_OS_TV
   FBScreenshotOrientation = UIInterfaceOrientationUnknown;
 #endif

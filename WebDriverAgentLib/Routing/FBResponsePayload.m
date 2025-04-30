@@ -44,7 +44,9 @@ XCUIElement *maybeStable(XCUIElement *element)
   }
 
   XCUIElement *result = element;
-  id<FBXCElementSnapshot> snapshot = element.lastSnapshot ?: [element fb_cachedSnapshot] ?: [element fb_takeSnapshot:NO];
+  id<FBXCElementSnapshot> snapshot = element.lastSnapshot
+    ?: element.fb_cachedSnapshot
+    ?: [element fb_standardSnapshot];
   NSString *uid = [FBXCElementSnapshotWrapper wdUIDWithSnapshot:snapshot];
   if (nil != uid) {
     result = [element fb_stableInstanceWithUid:uid];
@@ -55,7 +57,9 @@ XCUIElement *maybeStable(XCUIElement *element)
 id<FBResponsePayload> FBResponseWithCachedElement(XCUIElement *element, FBElementCache *elementCache, BOOL compact)
 {
   [elementCache storeElement:maybeStable(element)];
-  return FBResponseWithStatus([FBCommandStatus okWithValue:FBDictionaryResponseWithElement(element, compact)]);
+  NSDictionary *response = FBDictionaryResponseWithElement(element, compact);
+  element.lastSnapshot = nil;
+  return FBResponseWithStatus([FBCommandStatus okWithValue:response]);
 }
 
 id<FBResponsePayload> FBResponseWithCachedElements(NSArray<XCUIElement *> *elements, FBElementCache *elementCache, BOOL compact)
@@ -64,6 +68,7 @@ id<FBResponsePayload> FBResponseWithCachedElements(NSArray<XCUIElement *> *eleme
   for (XCUIElement *element in elements) {
     [elementCache storeElement:maybeStable(element)];
     [elementsResponse addObject:FBDictionaryResponseWithElement(element, compact)];
+    element.lastSnapshot = nil;
   }
   return FBResponseWithStatus([FBCommandStatus okWithValue:elementsResponse]);
 }
@@ -105,7 +110,9 @@ inline NSDictionary *FBDictionaryResponseWithElement(XCUIElement *element, BOOL 
 {
   __block NSDictionary *elementResponse = nil;
   @autoreleasepool {
-    id<FBXCElementSnapshot> snapshot = element.lastSnapshot ?: element.fb_cachedSnapshot ?: [element fb_takeSnapshot:YES];
+    id<FBXCElementSnapshot> snapshot = element.lastSnapshot
+      ?: element.fb_cachedSnapshot
+      ?: [element fb_customSnapshot];
     NSDictionary *compactResult = FBToElementDict((NSString *)[FBXCElementSnapshotWrapper wdUIDWithSnapshot:snapshot]);
     if (compact) {
       elementResponse = compactResult;
