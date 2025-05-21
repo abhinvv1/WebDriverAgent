@@ -57,6 +57,16 @@ extern const int ELEMENT_CACHE_SIZE;
  */
 - (BOOL)hasElementWithUUID:(nullable NSString *)uuid;
 
+/**
+ Adjusts cache size based on current memory pressure
+ */
+- (void)adjustCacheSizeForMemoryPressure;
+
+/**
+ Clears the cache and releases all stored elements
+ */
+- (void)clearCache;
+
 @end
 
 NS_ASSUME_NONNULL_END

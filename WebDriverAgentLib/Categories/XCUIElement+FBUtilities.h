@@ -60,6 +60,19 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable id<FBXCElementSnapshot>)fb_cachedSnapshot;
 
 /**
+ Clears the last snapshot to free memory
+ */
+- (void)fb_clearLastSnapshot;
+
+/**
+ Takes a snapshot with optimized memory usage
+ @param isCustom Whether to take a custom snapshot
+ @param maxDepth Maximum depth of the snapshot tree
+ @return The snapshot of the element
+ */
+- (id<FBXCElementSnapshot>)fb_takeOptimizedSnapshot:(BOOL)isCustom maxDepth:(NSUInteger)maxDepth;
+
+/**
  Filters elements by matching them to snapshots from the corresponding array
 
  @param snapshots Array of snapshots to be matched with

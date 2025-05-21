@@ -153,4 +153,49 @@
   FBConfiguration.waitForIdleTimeout = previousTimeout;
 }
 
+- (id<FBXCElementSnapshot>)fb_takeOptimizedSnapshot:(BOOL)isCustom maxDepth:(NSUInteger)maxDepth
+{
+  __block id<FBXCElementSnapshot> snapshot = nil;
+  @autoreleasepool {
+    NSError *error = nil;
+    NSMutableDictionary *parameters = [NSMutableDictionary dictionary];
+    parameters[FBSnapshotMaxDepthKey] = @(maxDepth);
+    
+    if (isCustom) {
+      snapshot = [self.fb_query fb_uniqueSnapshotWithError:&error];
+    } else {
+      snapshot = (id<FBXCElementSnapshot>)[self snapshotWithError:&error];
+    }
+    
+    if (nil == snapshot) {
+      NSString *hintText = @"Make sure the application UI has the expected state";
+      if (nil != error && [error.localizedDescription containsString:@"Identity Binding"]) {
+        hintText = [NSString stringWithFormat:@"%@. You could also try to switch the binding strategy using the 'boundElementsByIndex' setting for the element lookup", hintText];
+      }
+      NSString *reason = [NSString stringWithFormat:@"The previously found element \"%@\" is not present in the current view anymore. %@",
+                          self.description, hintText];
+      if (nil != error) {
+        reason = [NSString stringWithFormat:@"%@. Original error: %@", reason, error.localizedDescription];
+      }
+      @throw [NSException exceptionWithName:FBStaleElementException reason:reason userInfo:@{}];
+    }
+  }
+  
+  if ([self isKindOfClass:XCUIApplication.class]) {
+    self.lastSnapshot = snapshot;
+  }
+  
+  return snapshot;
+}
+
+- (id<FBXCElementSnapshot>)fb_standardSnapshot
+{
+  return [self fb_takeOptimizedSnapshot:NO maxDepth:1];
+}
+
+- (id<FBXCElementSnapshot>)fb_customSnapshot
+{
+  return [self fb_takeOptimizedSnapshot:YES maxDepth:FBConfiguration.snapshotMaxDepth];
+}
+
 @end
