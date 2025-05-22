@@ -38,6 +38,9 @@
 #import "XCUIElement+FBWebDriverAttributes.h"
 #import "XCUIElementQuery.h"
 #import "FBElementHelpers.h"
+#import <objc/runtime.h>
+#import "XCUIScreen.h"
+#import "FBConfiguration.h"
 
 static NSString* const FBUnknownBundleId = @"unknown";
 
@@ -116,8 +119,8 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
   __block BOOL canDetectAxElement = YES;
   int currentProcessIdentifier = [self.accessibilityElement processIdentifier];
   BOOL result = [[[FBRunLoopSpinner new]
-           timeout:timeout]
-          spinUntilTrue:^BOOL{
+                  timeout:timeout]
+                 spinUntilTrue:^BOOL{
     id<FBXCAccessibilityElement> currentAppElement = FBActiveAppDetectionPoint.sharedInstance.axElement;
     canDetectAxElement = nil != currentAppElement;
     if (!canDetectAxElement) {
@@ -126,8 +129,8 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
     return currentAppElement.processIdentifier == currentProcessIdentifier;
   }];
   return canDetectAxElement
-    ? result
-    : [self waitForExistenceWithTimeout:timeout];
+  ? result
+  : [self waitForExistenceWithTimeout:timeout];
 }
 
 + (NSArray<NSDictionary<NSString *, id> *> *)fb_appsInfoWithAxElements:(NSArray<id<FBXCAccessibilityElement>> *)axElements
@@ -142,13 +145,13 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     [proxy _XCT_requestBundleIDForPID:pid
                                 reply:^(NSString *bundleID, NSError *error) {
-                                  if (nil == error) {
-                                    bundleId = bundleID;
-                                  } else {
-                                    [FBLogger logFmt:@"Cannot request the bundle ID for process ID %@: %@", @(pid), error.description];
-                                  }
-                                  dispatch_semaphore_signal(sem);
-                                }];
+      if (nil == error) {
+        bundleId = bundleID;
+      } else {
+        [FBLogger logFmt:@"Cannot request the bundle ID for process ID %@: %@", @(pid), error.description];
+      }
+      dispatch_semaphore_signal(sem);
+    }];
     dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)));
     appInfo[@"bundleId"] = bundleId ?: FBUnknownBundleId;
     [result addObject:appInfo.copy];
@@ -190,7 +193,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
   return [self.class accessibilityInfoForElement:snapshot];
 }
 
-+ (NSDictionary *)dictionaryForElement:(id<FBXCElementSnapshot>)snapshot 
++ (NSDictionary *)dictionaryForElement:(id<FBXCElementSnapshot>)snapshot
                              recursive:(BOOL)recursive
                     excludedAttributes:(nullable NSSet<NSString *> *)excludedAttributes
 {
@@ -204,28 +207,28 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
   info[@"rect"] = wrappedSnapshot.wdRect;
   
   NSDictionary<NSString *, NSString *(^)(void)> *attributeBlocks = [self fb_attributeBlockMapForWrappedSnapshot:wrappedSnapshot];
-
+  
   NSSet *nonPrefixedKeys = [NSSet setWithObjects:
                             FBExclusionAttributeFrame,
                             FBExclusionAttributePlaceholderValue,
                             FBExclusionAttributeNativeFrame,
                             nil];
-
+  
   for (NSString *key in attributeBlocks) {
-      if (excludedAttributes == nil || ![excludedAttributes containsObject:key]) {
-          NSString *value = ((NSString * (^)(void))attributeBlocks[key])();
-          if ([nonPrefixedKeys containsObject:key]) {
-              info[key] = value;
-          } else {
-              info[[NSString stringWithFormat:@"is%@", [key capitalizedString]]] = value;
-          }
+    if (excludedAttributes == nil || ![excludedAttributes containsObject:key]) {
+      NSString *value = ((NSString * (^)(void))attributeBlocks[key])();
+      if ([nonPrefixedKeys containsObject:key]) {
+        info[key] = value;
+      } else {
+        info[[NSString stringWithFormat:@"is%@", [key capitalizedString]]] = value;
       }
+    }
   }
-
+  
   if (!recursive) {
     return info.copy;
   }
-
+  
   NSArray *childElements = snapshot.children;
   if ([childElements count]) {
     info[@"children"] = [[NSMutableArray alloc] init];
@@ -285,9 +288,9 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
   FBXCElementSnapshotWrapper *wrappedSnapshot = [FBXCElementSnapshotWrapper ensureWrapped:snapshot];
   BOOL isAccessible = [wrappedSnapshot isWDAccessible];
   BOOL isVisible = [wrappedSnapshot isWDVisible];
-
+  
   NSMutableDictionary *info = [[NSMutableDictionary alloc] init];
-
+  
   if (isAccessible) {
     if (isVisible) {
       info[@"value"] = FBValueOrNull(wrappedSnapshot.wdValue);
@@ -363,12 +366,12 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
                                                timeout:0
                                                  error:nil];
   };
-
+  
   if (isKeyboardInvisible()) {
     // Short circuit if the keyboard is not visible
     return YES;
   }
-
+  
 #if TARGET_OS_TV
   [[XCUIRemote sharedRemote] pressButton:XCUIRemoteButtonMenu];
 #else
@@ -379,15 +382,15 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
     return [[parentView childrenMatchingType:XCUIElementTypeAny]
             matchingPredicate:predicate].allElementsBoundByIndex;
   };
-
+  
   if (nil != keyNames && keyNames.count > 0) {
     NSPredicate *searchPredicate = [NSPredicate predicateWithBlock:^BOOL(id<FBXCElementSnapshot> snapshot, NSDictionary *bindings) {
       if (snapshot.elementType != XCUIElementTypeKey && snapshot.elementType != XCUIElementTypeButton) {
         return NO;
       }
-
+      
       return (nil != snapshot.identifier && [keyNames containsObject:snapshot.identifier])
-        || (nil != snapshot.label && [keyNames containsObject:snapshot.label]);
+      || (nil != snapshot.label && [keyNames containsObject:snapshot.label]);
     }];
     NSArray *matchedKeys = findMatchingKeys(searchPredicate);
     if (matchedKeys.count > 0) {
@@ -395,7 +398,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
         if (!matchedKey.exists) {
           continue;
         }
-
+        
         [matchedKey tap];
         if (isKeyboardInvisible()) {
           return YES;
@@ -447,7 +450,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
      buildError:error];
     return nil;
   }
-
+  
   // These custom attributes could take too long to fetch, thus excluded
   NSSet *customAttributesToExclude = [NSSet setWithArray:[customExclusionAttributesMap() allKeys]];
   NSMutableArray<NSDictionary *> *resultArray = [NSMutableArray array];
@@ -564,7 +567,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
       }
     }
   }
-
+  
   if (nil != activeApplicationElement) {
     XCUIApplication *application = [XCUIApplication fb_applicationWithPID:activeApplicationElement.processIdentifier];
     if (nil != application) {
@@ -572,7 +575,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
     }
     [FBLogger log:@"Cannot translate the active process identifier into an application object"];
   }
-
+  
   if (activeApplicationElements.count > 0) {
     [FBLogger logFmt:@"Getting the most recent active application (out of %@ total items)", @(activeApplicationElements.count)];
     for (id<FBXCAccessibilityElement> appElement in activeApplicationElements) {
@@ -582,7 +585,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
       }
     }
   }
-
+  
   [FBLogger log:@"Cannot retrieve any active applications. Assuming the system application is the active one"];
   return [self fb_systemApplication];
 }
@@ -590,7 +593,7 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
 + (instancetype)fb_systemApplication
 {
   return [self fb_applicationWithPID:
-                           [[FBXCAXClientProxy.sharedClient systemApplication] processIdentifier]];
+          [[FBXCAXClientProxy.sharedClient systemApplication] processIdentifier]];
 }
 
 + (instancetype)fb_applicationWithPID:(pid_t)processID
@@ -627,6 +630,165 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
     return NO;
   }
   return self == otherApp || [self.bundleID isEqualToString:(NSString *)otherApp.bundleID];
+}
+
+
+- (NSString *)fb_bundleId
+{
+  return self.bundleID;
+}
+
+- (pid_t)fb_processId
+{
+  return self.processID;
+}
+
+- (BOOL)fb_goToBackgroundWithError:(NSError **)error
+{
+  // Standard way to background an application
+  [XCUIDevice.sharedDevice pressButton:XCUIDeviceButtonHome];
+  
+  // It is necessary to enforce a delay after backgrounding an app
+  // so XCTest can properly update its state
+  // Otherwise further API calls may randomly fail
+  [[FBConfiguration sharedConfiguration].systemInteractionDelay sleep]; // Corrected access
+  
+  // Verify state after attempting to background
+  // This is an indirect way to check for success as pressButton: doesn't return a status/error.
+  if (self.state == XCUIApplicationStateRunningBackground || self.state == XCUIApplicationStateRunningBackgroundSuspended) {
+    return YES;
+  }
+
+  // If not in a background state, consider it an error.
+  if (error) {
+    *error = [[[[FBErrorBuilder builder]
+                withDescription:@"Failed to background the application. Application did not enter a background state."]
+               withDomain:FBErrorDomain]
+              build];
+  }
+  return NO;
+}
+
+- (BOOL)fb_waitForApplicationState:(XCUIApplicationState)state timeout:(NSTimeInterval)timeout
+{
+  NSError *spinError = nil;
+  BOOL success = [[[[FBRunLoopSpinner new]
+                   timeout:timeout]
+                  interval:0.1] // Default interval if not specified
+                 spinUntilTrue:^BOOL{
+    [self query]; // Refresh application state
+    return self.state == state;
+  } error:&spinError];
+
+  if (!success) {
+    NSString *message = [NSString stringWithFormat:@"Application '%@' did not enter state %ld within %@s.",
+                         self.bundleID, (long)state, @(timeout)];
+    if (spinError) {
+        [FBLogger logFmt:@"%@ Underlying error: %@", message, spinError.localizedDescription];
+    } else {
+        [FBLogger log:message];
+    }
+    // Note: This method's contract is to return BOOL, not to set an outer error.
+    // The caller should handle the NO return value.
+  }
+  return success;
+}
+
+- (BOOL)fb_terminate:(BOOL)shouldBackground error:(NSError **)error
+{
+  if (shouldBackground) {
+    if (![self fb_goToBackgroundWithError:error]) {
+      // fb_goToBackgroundWithError: will set the error if it fails
+      return NO;
+    }
+  }
+  [self terminate];
+  // It is necessary to enforce a delay after terminating an app
+  [[FBConfiguration sharedConfiguration].systemInteractionDelay sleep]; // Corrected access
+  
+  if (![self fb_waitForApplicationState:XCUIApplicationStateNotRunning timeout:[FBConfiguration sharedConfiguration].appTerminationTimeout]) { // Corrected access
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"Failed to terminate '%@' application. It did not enter 'NotRunning' state.", self.bundleID]
+            buildError:error];
+  }
+  return YES;
+}
+
+- (BOOL)fb_activate:(BOOL)shouldLaunch error:(NSError **)error
+{
+  if (shouldLaunch) {
+    [self launch];
+  } else {
+    [self activate];
+  }
+  // It is necessary to enforce a delay after activating an app
+  [[FBConfiguration sharedConfiguration].systemInteractionDelay sleep]; // Corrected access
+  
+  if (![self fb_waitForApplicationState:XCUIApplicationStateRunningForeground timeout:[FBConfiguration sharedConfiguration].appLaunchTimeout]) { // Corrected access
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"Failed to activate '%@' application. It did not enter 'RunningForeground' state.", self.bundleID]
+            buildError:error];
+  }
+  return YES;
+}
+
+// Helper method to recursively search for a view of a specific class kind
+static BOOL FB_viewContainsViewOfKind(UIView *view, Class kind) {
+    if (!view || !kind) return NO;
+    if ([view isKindOfClass:kind]) {
+        return YES;
+    }
+    for (UIView *subview in view.subviews) {
+        if (FB_viewContainsViewOfKind(subview, kind)) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (BOOL)fb_isReactNativeApp
+{
+  __block BOOL isRN = NO;
+  Class rctRootViewClass = NSClassFromString(@"RCTRootView");
+  if (!rctRootViewClass) {
+    return NO;
+  }
+
+  dispatch_sync(dispatch_get_main_queue(), ^{
+      UIWindow *keyWindow = nil;
+      if (@available(iOS 13.0, *)) {
+          for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+              if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
+                  UIWindowScene *windowScene = (UIWindowScene *)scene;
+                  for (UIWindow *window in windowScene.windows) {
+                      if (window.isKeyWindow) {
+                          keyWindow = window;
+                          break;
+                      }
+                  }
+              }
+              if (keyWindow) break;
+          }
+      } else {
+  #pragma clang diagnostic push
+  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          keyWindow = UIApplication.sharedApplication.keyWindow;
+  #pragma clang diagnostic pop
+      }
+
+      if (keyWindow && keyWindow.rootViewController && keyWindow.rootViewController.view) {
+          if (FB_viewContainsViewOfKind(keyWindow.rootViewController.view, rctRootViewClass)) {
+              isRN = YES;
+          }
+      }
+  });
+
+  if (isRN) {
+    [FBLogger logFmt:@"Detected React Native application."];
+  } else {
+    [FBLogger logFmt:@"Did not detect a React Native application (RCTRootView not found in key window's hierarchy)."];
+  }
+  return isRN;
 }
 
 @end
