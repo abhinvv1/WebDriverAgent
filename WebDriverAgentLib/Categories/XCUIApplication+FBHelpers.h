@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, readonly, nullable) NSString *fb_bundleId;
 
-@property (nonatomic, readonly) pid_t fb_processId;
+@property (nonatomic) pid_t fb_processId;
 
 /**
  Deactivates application for given time
@@ -170,16 +170,6 @@ NS_ASSUME_NONNULL_BEGIN
  @return YES if the other app has the same identifier
  */
 - (BOOL)fb_isSameAppAs:(nullable XCUIApplication *)otherApp;
-
-- (BOOL)fb_goToBackgroundWithError:(NSError **)error;
-
-- (BOOL)fb_waitForApplicationState:(XCUIApplicationState)state timeout:(NSTimeInterval)timeout;
-
-- (BOOL)fb_terminate:(BOOL)shouldBackground error:(NSError **)error;
-
-- (BOOL)fb_activate:(BOOL)shouldLaunch error:(NSError **)error;
-
-- (BOOL)fb_isReactNativeApp;
 
 @end
 

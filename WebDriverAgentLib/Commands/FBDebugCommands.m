@@ -110,39 +110,55 @@ static NSString *const SOURCE_FORMAT_DESCRIPTION = @"description";
 //  }
   
   [FBLogger logFmt:@"Attempting to generate React Native page source."];
-  NSDictionary *rnTree = nil;
-  NSError *fetchError = nil;
-  NSURL *autServerURL = [NSURL URLWithString:@"http://localhost:8082/tree"];
+    id result;
 
-  @try {
-      rnTree = [RNUiInspector fetchUiTreeFromAUTServerAtURL:autServerURL error:&fetchError];
-    } @catch (NSException *exception) {
-      [FBLogger logFmt:@"Exception calling RNUiInspector fetchUiTreeFromAUTServer: %@. Details: %@", exception.name, exception.reason];
-      rnTree = nil;
-      if (!fetchError) {
-          fetchError = [NSError errorWithDomain:@"RNUiInspectorFetchDomain" code:2001 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Exception during fetch: %@", exception.reason]}];
+  NSDictionary *rnTree = [RNUiInspector treeForApplication:application];
+      if (!rnTree) {
+        return FBResponseWithUnknownErrorFormat(@"Cannot get React Native source of the current application. RN Tree was nil.");
       }
-    }
-    FBXMLGenerationOptions *xmlOptions = nil;
-    if (rnTree && rnTree.count > 0) {
-      [FBLogger logFmt:@"Successfully fetched React Native tree from in-AUT server."];
-      NSString *iter = [FBRNViewXMLConverter xmlStringFromRNTree:rnTree options:xmlOptions];
-      if (rnXmlSource) {
-          [FBLogger logFmt:@"Successfully converted fetched React Native tree to XML."];
-          return FBResponseWithObject(rnXmlSource);
-      } else {
-          [FBLogger log:@"Failed to convert fetched React Native tree to XML. Falling back to XCUITest source."];
-          fetchError = [NSError errorWithDomain:@"RNXMLConversionDomain" code:3001 userInfo:@{NSLocalizedDescriptionKey: @"Failed to convert fetched RN tree to XML."}];
-      }
-    } else {
-      NSString *errorMsg = @"React Native tree not fetched or was empty.";
-      if (fetchError) {
-          errorMsg = [NSString stringWithFormat:@"%@ Error: %@", errorMsg, fetchError.localizedDescription];
-      }
-      [FBLogger logFmt:@"%@ Falling back to XCUITest source.", errorMsg];
-    }
+  
+      [FBLogger logFmt:@"React Native page source. %@", rnTree];
 
-  id result;
+      NSArray<NSString *> *excludedAttributes = nil == request.parameters[@"excluded_attributes"]
+        ? nil
+        : [request.parameters[@"excluded_attributes"] componentsSeparatedByString:@","];
+      FBXMLGenerationOptions *xmlOptions = [[[FBXMLGenerationOptions new]
+                                             withExcludedAttributes:excludedAttributes] //
+                                            withScope:sourceScope]; //
+
+//      NSString *rnXmlSource = [FBRNViewXMLConverter xmlStringFromRNTree:rnTree options:xmlOptions];
+//      result = rnXmlSource;
+    return FBResponseWithObject(rnTree);
+//  NSURL *autServerURL = [NSURL URLWithString:@"http://localhost:8082/tree"];
+//
+//  @try {
+//      rnTree = [RNUiInspector fetchUiTreeFromAUTServerAtURL:autServerURL error:&fetchError];
+//    } @catch (NSException *exception) {
+//      [FBLogger logFmt:@"Exception calling RNUiInspector fetchUiTreeFromAUTServer: %@. Details: %@", exception.name, exception.reason];
+//      rnTree = nil;
+//      if (!fetchError) {
+//          fetchError = [NSError errorWithDomain:@"RNUiInspectorFetchDomain" code:2001 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Exception during fetch: %@", exception.reason]}];
+//      }
+//    }
+//    FBXMLGenerationOptions *xmlOptions = nil;
+//    if (rnTree && rnTree.count > 0) {
+//      [FBLogger logFmt:@"Successfully fetched React Native tree from in-AUT server."];
+//      NSString *iter = [FBRNViewXMLConverter xmlStringFromRNTree:rnTree options:xmlOptions];
+//      if (rnXmlSource) {
+//          [FBLogger logFmt:@"Successfully converted fetched React Native tree to XML."];
+//          return FBResponseWithObject(rnXmlSource);
+//      } else {
+//          [FBLogger log:@"Failed to convert fetched React Native tree to XML. Falling back to XCUITest source."];
+//          fetchError = [NSError errorWithDomain:@"RNXMLConversionDomain" code:3001 userInfo:@{NSLocalizedDescriptionKey: @"Failed to convert fetched RN tree to XML."}];
+//      }
+//    } else {
+//      NSString *errorMsg = @"React Native tree not fetched or was empty.";
+//      if (fetchError) {
+//          errorMsg = [NSString stringWithFormat:@"%@ Error: %@", errorMsg, fetchError.localizedDescription];
+//      }
+//      [FBLogger logFmt:@"%@ Falling back to XCUITest source.", errorMsg];
+//    }
+
   if ([sourceType caseInsensitiveCompare:SOURCE_FORMAT_XML] == NSOrderedSame) {
     NSArray<NSString *> *excludedAttributes = nil == request.parameters[@"excluded_attributes"]
       ? nil
