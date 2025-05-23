@@ -821,6 +821,10 @@
 		FBCC058F2DDED026004C609D /* FBRNViewXMLConverter.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCC058D2DDED026004C609D /* FBRNViewXMLConverter.h */; };
 		FBCC05912DDED02F004C609D /* FBRNViewXMLConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCC05902DDED02F004C609D /* FBRNViewXMLConverter.m */; };
 		FBCC05922DDED02F004C609D /* FBRNViewXMLConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCC05902DDED02F004C609D /* FBRNViewXMLConverter.m */; };
+		FBCC05A32DDFAAF2004C609D /* XCUIApplication+FBGridSampling.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCC05A22DDFAAE9004C609D /* XCUIApplication+FBGridSampling.h */; };
+		FBCC05A42DDFAAF2004C609D /* XCUIApplication+FBGridSampling.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCC05A22DDFAAE9004C609D /* XCUIApplication+FBGridSampling.h */; };
+		FBCC05A62DDFAB13004C609D /* XCUIApplication+FBGridSampling.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCC05A52DDFAB0F004C609D /* XCUIApplication+FBGridSampling.m */; };
+		FBCC05A72DDFAB13004C609D /* XCUIApplication+FBGridSampling.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCC05A52DDFAB0F004C609D /* XCUIApplication+FBGridSampling.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1401,6 +1405,8 @@
 		FBCC058A2DDECFF4004C609D /* RNUiInspector.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RNUiInspector.m; sourceTree = "<group>"; };
 		FBCC058D2DDED026004C609D /* FBRNViewXMLConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FBRNViewXMLConverter.h; sourceTree = "<group>"; };
 		FBCC05902DDED02F004C609D /* FBRNViewXMLConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBRNViewXMLConverter.m; sourceTree = "<group>"; };
+		FBCC05A22DDFAAE9004C609D /* XCUIApplication+FBGridSampling.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "XCUIApplication+FBGridSampling.h"; sourceTree = "<group>"; };
+		FBCC05A52DDFAB0F004C609D /* XCUIApplication+FBGridSampling.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "XCUIApplication+FBGridSampling.m"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1915,6 +1921,8 @@
 		EE9AB78E1CAEDF0C008C271F /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				FBCC05A52DDFAB0F004C609D /* XCUIApplication+FBGridSampling.m */,
+				FBCC05A22DDFAAE9004C609D /* XCUIApplication+FBGridSampling.h */,
 				FBCC05902DDED02F004C609D /* FBRNViewXMLConverter.m */,
 				FBCC058D2DDED026004C609D /* FBRNViewXMLConverter.h */,
 				FBCC058A2DDECFF4004C609D /* RNUiInspector.m */,
@@ -2445,6 +2453,7 @@
 				641EE6AC2240C5CA00173FCB /* XCTWaiter.h in Headers */,
 				641EE6AD2240C5CA00173FCB /* XCTWaiterManagement-Protocol.h in Headers */,
 				641EE6AF2240C5CA00173FCB /* XCTestContext.h in Headers */,
+				FBCC05A32DDFAAF2004C609D /* XCUIApplication+FBGridSampling.h in Headers */,
 				71C9EAAD25E8415A00470CD8 /* FBScreenshot.h in Headers */,
 				641EE6B12240C5CA00173FCB /* XCTWaiterDelegate-Protocol.h in Headers */,
 				641EE6B22240C5CA00173FCB /* _XCTestExpectationImplementation.h in Headers */,
@@ -2660,6 +2669,7 @@
 				EE35AD671E3B77D600A02D78 /* XCTWaiterDelegatePrivate-Protocol.h in Headers */,
 				EE35AD4D1E3B77D600A02D78 /* XCTestManager_IDEInterface-Protocol.h in Headers */,
 				13DE7A5B287CA444003243C6 /* FBXCElementSnapshotWrapper+Helpers.h in Headers */,
+				FBCC05A42DDFAAF2004C609D /* XCUIApplication+FBGridSampling.h in Headers */,
 				711084441DA3AA7500F913D6 /* FBXPath.h in Headers */,
 				EE35AD771E3B77D600A02D78 /* XCUIRecorderTimingMessage.h in Headers */,
 				E444DC83249131B10060D7EB /* DDNumber.h in Headers */,
@@ -3196,6 +3206,7 @@
 				641EE60A2240C5CA00173FCB /* FBLogger.m in Sources */,
 				641EE60B2240C5CA00173FCB /* FBCustomCommands.m in Sources */,
 				71BB58E42B9631F100CB9BFE /* FBScreenRecordingPromise.m in Sources */,
+				FBCC05A62DDFAB13004C609D /* XCUIApplication+FBGridSampling.m in Sources */,
 				641EE60C2240C5CA00173FCB /* XCUIDevice+FBHelpers.m in Sources */,
 				641EE60D2240C5CA00173FCB /* XCTestPrivateSymbols.m in Sources */,
 				641EE60E2240C5CA00173FCB /* XCUIElement+FBTyping.m in Sources */,
@@ -3277,6 +3288,7 @@
 				71B155E123080CA600646AFB /* FBProtocolHelpers.m in Sources */,
 				EE158AB11CBD456F00A3E3F0 /* XCUIElement+FBIsVisible.m in Sources */,
 				FBCC05912DDED02F004C609D /* FBRNViewXMLConverter.m in Sources */,
+				FBCC05A72DDFAB13004C609D /* XCUIApplication+FBGridSampling.m in Sources */,
 				71AE3CFA2D38EE8E0039FC36 /* XCUIElement+FBVisibleFrame.m in Sources */,
 				EEBBD48C1D47746D00656A81 /* XCUIElement+FBFind.m in Sources */,
 				EE158ADD1CBD456F00A3E3F0 /* FBResponsePayload.m in Sources */,

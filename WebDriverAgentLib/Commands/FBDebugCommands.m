@@ -25,6 +25,8 @@
 
 #import "RNUiInspector.h"
 #import "FBRNViewXMLConverter.h"
+#import "XCUIApplication+FBGridSampling.h"
+#import "FBRNViewXMLConverter.h"
 
 @implementation FBDebugCommands
 
@@ -95,52 +97,44 @@ static NSString *const SOURCE_FORMAT_DESCRIPTION = @"description";
 {
   XCUIApplication *application = request.session.activeApplication ?: XCUIApplication.fb_activeApplication;
   NSString *sourceType = request.parameters[@"format"] ?: SOURCE_FORMAT_XML;
+  NSString *format = request.parameters[@"format"];
+    BOOL useGridSampling = [format isEqualToString:@"grid"] ||
+                           [request.parameters[@"gridSampling"] boolValue];
+    
+    if (true) {
+      [FBLogger logFmt:@"Using grid sampling for page source"];
+      
+      // Extract grid sampling parameters
+      NSMutableDictionary *samplingParams = [NSMutableDictionary dictionary];
+      
+       samplingParams[@"samplesX"] = request.parameters[@"samplesX"] ?: @7;
+       samplingParams[@"samplesY"] = request.parameters[@"samplesY"] ?: @15;
+       samplingParams[@"maxRecursionDepth"] = request.parameters[@"maxRecursionDepth"] ?: @8;
+       
+      
+      NSDictionary *gridSampledTree = [application fb_gridSampledTreeWithParameters:samplingParams];
+      
+      [FBLogger logFmt:@"gridSampledTree page source %@", gridSampledTree];
+      
+      return FBResponseWithObject(gridSampledTree);
+      
+//      if (gridSampledTree != nil) {
+//        FBResponseWithObject(gridSampledTree);
+//      }
+      
+//      // Convert to XML if requested
+//      NSString *formatType = request.parameters[@"format"] ?: @"json";
+//      if ([formatType isEqualToString:@"xml"]) {
+//        NSString *xmlSource = [FBRNViewXMLConverter xmlStringFromRNTree:gridSampledTree];
+//        return FBResponseWithObject(xmlSource);
+//      } else {
+//        return FBResponseWithObject(gridSampledTree);
+//      }
+    }
+    
+    // Fall back to standard page source
   NSString *sourceScope = request.parameters[@"scope"];
 
-//  id<FBResponsePayload> formatError = nil;
-//  FBSourceOutputFormat outputFormat = FBDetermineOutputFormat(request.arguments[@"format"], &formatError);
-//  if (formatError) {
-//    return formatError;
-//  }
-//
-//  id<FBResponsePayload> optionsError = nil;
-//  FBXMLGenerationOptions *xmlOptions = FBExtractXMLOptions(request.arguments[@"excludedAttributes"], &optionsError);
-//  if (optionsError) {
-//    return optionsError;
-//  }
-  
-  [FBLogger logFmt:@"Attempting to generate React Native page source."];
-  NSDictionary *rnTree = nil;
-  NSError *fetchError = nil;
-  NSURL *autServerURL = [NSURL URLWithString:@"http://localhost:8082/tree"];
-
-  @try {
-      rnTree = [RNUiInspector fetchUiTreeFromAUTServerAtURL:autServerURL error:&fetchError];
-    } @catch (NSException *exception) {
-      [FBLogger logFmt:@"Exception calling RNUiInspector fetchUiTreeFromAUTServer: %@. Details: %@", exception.name, exception.reason];
-      rnTree = nil;
-      if (!fetchError) {
-          fetchError = [NSError errorWithDomain:@"RNUiInspectorFetchDomain" code:2001 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"Exception during fetch: %@", exception.reason]}];
-      }
-    }
-    FBXMLGenerationOptions *xmlOptions = nil;
-    if (rnTree && rnTree.count > 0) {
-      [FBLogger logFmt:@"Successfully fetched React Native tree from in-AUT server."];
-      NSString *iter = [FBRNViewXMLConverter xmlStringFromRNTree:rnTree options:xmlOptions];
-      if (rnXmlSource) {
-          [FBLogger logFmt:@"Successfully converted fetched React Native tree to XML."];
-          return FBResponseWithObject(rnXmlSource);
-      } else {
-          [FBLogger log:@"Failed to convert fetched React Native tree to XML. Falling back to XCUITest source."];
-          fetchError = [NSError errorWithDomain:@"RNXMLConversionDomain" code:3001 userInfo:@{NSLocalizedDescriptionKey: @"Failed to convert fetched RN tree to XML."}];
-      }
-    } else {
-      NSString *errorMsg = @"React Native tree not fetched or was empty.";
-      if (fetchError) {
-          errorMsg = [NSString stringWithFormat:@"%@ Error: %@", errorMsg, fetchError.localizedDescription];
-      }
-      [FBLogger logFmt:@"%@ Falling back to XCUITest source.", errorMsg];
-    }
 
   id result;
   if ([sourceType caseInsensitiveCompare:SOURCE_FORMAT_XML] == NSOrderedSame) {
