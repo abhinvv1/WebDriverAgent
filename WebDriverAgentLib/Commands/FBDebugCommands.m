@@ -116,7 +116,7 @@ static NSString *const SOURCE_FORMAT_DESCRIPTION = @"description";
       
       [FBLogger logFmt:@"gridSampledTree page source %@", gridSampledTree];
       
-      return FBResponseWithObject(gridSampledTree);
+//      return FBResponseWithObject(gridSampledTree);
       
 //      if (gridSampledTree != nil) {
 //        FBResponseWithObject(gridSampledTree);
