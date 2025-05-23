@@ -16,17 +16,17 @@ static void *ProcessedElementIDsKey = &ProcessedElementIDsKey;
 
 
 static const NSTimeInterval kFBGridSamplingTimeout = 0.1;
-static const NSInteger kFBInitialSamplesX = 100;
-static const NSInteger kFBInitialSamplesY = 200;
-static const NSInteger kFBMaxRecursionDepth = 50;
-static const NSInteger kFBMaxElementsLimit = 5000;
-static const NSInteger kFBAdaptiveSubsamples = 20;
+static const NSInteger kFBInitialSamplesX = 10;
+static const NSInteger kFBInitialSamplesY = 20;
+static const NSInteger kFBMaxRecursionDepth = 1;
+static const NSInteger kFBMaxElementsLimit = 500;
+static const NSInteger kFBAdaptiveSubsamples = 5;
 static const CGFloat kFBMinElementSize = 1.0;
 
 static const NSTimeInterval kFBMaxTotalExecutionTime = 30.0; // Max 30 seconds total
-static const NSInteger kFBMaxAccessibilityTraversalDepth = 50; // Limit accessibility depth
-static const NSInteger kFBMaxChildrenPerElement = 100; // Limit children per element
-static const NSInteger kFBMaxSamplingIterations = 1500; // Max sampling iterations
+static const NSInteger kFBMaxAccessibilityTraversalDepth = 5; // Limit accessibility depth
+static const NSInteger kFBMaxChildrenPerElement = 2; // Limit children per element
+static const NSInteger kFBMaxSamplingIterations = 1000; // Max sampling iterations
 
 // Forward declarations for XCTest private APIs
 @interface NSObject (XCTestPrivateAPI)
@@ -120,11 +120,11 @@ static const NSInteger kFBMaxSamplingIterations = 1500; // Max sampling iteratio
           [self fb_performAdaptiveDenseSampling:discoveredElements
                                   elementRegistry:elementRegistry
                                   processedPoints:processedPoints
-                                         maxDepth:MIN(maxRecursionDepth, 10)];
+                                  maxDepth:maxRecursionDepth];
       }
       
       if ([self fb_shouldContinueExecution] && discoveredElements.count < kFBMaxElementsLimit) {
-          [self fb_performAccessibilityTraversal:discoveredElements
+          [self fb_performAccessibilityTraversal_Iterative:discoveredElements
                                  elementRegistry:elementRegistry
                                         maxDepth:kFBMaxAccessibilityTraversalDepth];
       }
@@ -229,192 +229,414 @@ static const NSInteger kFBMaxSamplingIterations = 1500; // Max sampling iteratio
 
 #pragma mark - Phase 3: Accessibility Traversal
 
-- (void)fb_performAccessibilityTraversal:(NSMutableArray<NSDictionary *> *)discoveredElements
-                         elementRegistry:(NSMutableDictionary *)elementRegistry
-                                maxDepth:(NSInteger)maxDepth {
-    
-    [FBLogger logFmt:@"Phase 3: Accessibility traversal"];
-    
-    NSInteger maxElementsToTraverse = discoveredElements.count;
-    NSArray<NSDictionary *> *elementsToTraverse = [discoveredElements subarrayWithRange:NSMakeRange(0, maxElementsToTraverse)];
+- (void)fb_performAccessibilityTraversal_Iterative:(NSMutableArray<NSDictionary *> *)initialElements
+                                   elementRegistry:(NSMutableDictionary *)elementRegistry
+                                          maxDepth:(NSInteger)maxAccessibilityRelativeDepth { // This is kFBMaxAccessibilityTraversalDepth
+    [FBLogger logFmt:@"Phase 3: Iterative Accessibility Traversal starting with %lu initial elements. Max relative depth: %ld",
+     (unsigned long)initialElements.count, (long)maxAccessibilityRelativeDepth];
 
-    for (NSDictionary *elementDict in elementsToTraverse) {
-        if (![self fb_shouldContinueExecution] || [elementRegistry count] > kFBMaxElementsLimit) {
-            [FBLogger logFmt:@"Reached element limit, stopping accessibility traversal"];
-            break;
+    NSMutableArray<NSDictionary *> *processingQueue = [NSMutableArray array];
+    // Each object in queue: @{
+    //   @"element": NSDictionary (element dictionary),
+    //   @"accessibilityDepth": NSNumber (depth relative to the initial grid element it originated from)
+    // }
+    for (NSDictionary *elementDict in initialElements) {
+        NSString *elementID = [self fb_createElementIdentifier:elementDict];
+        if (![self.processedElementIDs containsObject:elementID]) {
+            [processingQueue addObject:@{
+                @"element": elementDict,
+                @"accessibilityDepth": @0
+            }];
         }
-        
-        [self fb_traverseAccessibilityChildren:elementDict
-                               elementRegistry:elementRegistry
-                                      maxDepth:maxDepth
-                                  currentDepth:0];
     }
+    [FBLogger logFmt:@"Iterative accessibility queue initialized with %lu elements.", (unsigned long)processingQueue.count];
+
+    NSUInteger processedParentsInThisPhase = 0;
+    NSInteger iterationSafetyNet = kFBMaxElementsLimit * 2;
+
+    // Main iterative loop
+    while (processingQueue.count > 0 &&
+           [self fb_shouldContinueExecution] &&
+           [elementRegistry count] < kFBMaxElementsLimit &&
+           processedParentsInThisPhase < iterationSafetyNet) {
+
+        NSDictionary *currentItem = [processingQueue firstObject];
+        [processingQueue removeObjectAtIndex:0];
+
+        NSDictionary *parentElementDict = currentItem[@"element"];
+        NSInteger parentAccessibilityRelativeDepth = [currentItem[@"accessibilityDepth"] integerValue];
+
+        NSString *parentID = [self fb_createElementIdentifier:parentElementDict];
+
+        if ([self.processedElementIDs containsObject:parentID]) {
+            continue;
+        }
+        [self.processedElementIDs addObject:parentID];
+        processedParentsInThisPhase++;
+
+        if (parentAccessibilityRelativeDepth >= maxAccessibilityRelativeDepth) {
+            continue;
+        }
+
+        NSInteger childrenAccessibilityRelativeDepth = parentAccessibilityRelativeDepth + 1;
+        NSInteger parentOverallDepth = [parentElementDict[@"depth"] integerValue];
+
+        NSDictionary *rect = parentElementDict[@"rect"];
+        CGPoint centerPoint = CGPointMake(
+            [rect[@"x"] floatValue] + [rect[@"width"] floatValue] / 2,
+            [rect[@"y"] floatValue] + [rect[@"height"] floatValue] / 2
+        );
+
+        [self fb_findAccessibilityChildrenAtPoint_IterativeHelper:centerPoint
+                                                  elementRegistry:elementRegistry
+                                                     parentElement:parentElementDict
+                                  childrenAccessibilityRelativeDepth:childrenAccessibilityRelativeDepth
+                                 maxAccessibilityRelativeDepthLimit:maxAccessibilityRelativeDepth
+                                                    processingQueue:processingQueue
+                                     processedElementIDsDuringPhase:self.processedElementIDs
+                                            parentOverallDepth:parentOverallDepth];
+    }
+    [FBLogger logFmt:@"Iterative accessibility traversal finished. Processed %lu parent elements for children. Registry size: %lu. Total Processed IDs: %lu",
+        (unsigned long)processedParentsInThisPhase, (unsigned long)elementRegistry.count, (unsigned long)self.processedElementIDs.count];
 }
 
-- (void)fb_traverseAccessibilityChildren:(NSDictionary *)parentElement
-                         elementRegistry:(NSMutableDictionary *)elementRegistry
-                                maxDepth:(NSInteger)maxDepth
-                            currentDepth:(NSInteger)currentDepth {
-    
-    if (currentDepth >= maxDepth || [elementRegistry count] > kFBMaxElementsLimit || ![self fb_shouldContinueExecution]) {
-        return;
-    }
-    NSString *parentID = [self fb_createElementIdentifier:parentElement];
-    if ([self.processedElementIDs containsObject:parentID]) {
-        return;
-    }
-    [self.processedElementIDs addObject:parentID];
-    // Get the center point of the parent element to query its accessibility element
-    NSDictionary *rect = parentElement[@"rect"];
-    CGPoint centerPoint = CGPointMake(
-        [rect[@"x"] floatValue] + [rect[@"width"] floatValue] / 2,
-        [rect[@"y"] floatValue] + [rect[@"height"] floatValue] / 2
-    );
-    
-    [self fb_findAccessibilityChildrenAtPoint:centerPoint
-                              elementRegistry:elementRegistry
-                                 parentElement:parentElement
-                                  currentDepth:currentDepth + 1
-                                      maxDepth:maxDepth];
-}
-
-- (void)fb_findAccessibilityChildrenAtPoint:(CGPoint)point
-                            elementRegistry:(NSMutableDictionary *)elementRegistry
-                             parentElement:(NSDictionary *)parentElement
-                              currentDepth:(NSInteger)currentDepth
-                                  maxDepth:(NSInteger)maxDepth {
-    
+- (void)fb_findAccessibilityChildrenAtPoint_IterativeHelper:(CGPoint)point
+                                            elementRegistry:(NSMutableDictionary *)elementRegistry
+                                               parentElement:(NSDictionary *)parentElementDict
+                         childrenAccessibilityRelativeDepth:(NSInteger)childrenRelativeDepth
+                         maxAccessibilityRelativeDepthLimit:(NSInteger)maxRelDepthLimit
+                                             processingQueue:(NSMutableArray<NSDictionary *> *)processingQueue
+                              processedElementIDsDuringPhase:(NSMutableSet<NSString *> *)processedElementIDsDuringPhase
+                                          parentOverallDepth:(NSInteger)parentOverallDepth {
     id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
-    if (!proxy) {
+    if (!proxy || ![self fb_shouldContinueExecution]) {
         return;
     }
-    if (![self fb_shouldContinueExecution]) {
-      return;
-    }
-    
-    __block BOOL completed = NO;
-    
+
+    __block BOOL completedOrTimedOut = NO;
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:1.0];
+
     [proxy _XCT_requestElementAtPoint:point reply:^(id axElement, NSError *error) {
-        if (error || !axElement) {
-            completed = YES;
+        if (error || !axElement || ![self fb_shouldContinueExecution]) {
+            if (error) {
+            }
+            completedOrTimedOut = YES;
             return;
         }
-        
+
         @try {
             NSInteger childCount = 0;
             if ([axElement respondsToSelector:@selector(accessibilityElementCount)]) {
                 childCount = [axElement accessibilityElementCount];
             }
-            
-            if (childCount > 0
-                //&& childCount < 50
-                ) {
+            childCount = MIN(childCount, kFBMaxChildrenPerElement);
+
+            if (childCount > 0) {
                 for (NSInteger i = 0; i < childCount; i++) {
-                    if ([elementRegistry count] > kFBMaxElementsLimit || ![self fb_shouldContinueExecution]) {
+                    if ([elementRegistry count] >= kFBMaxElementsLimit || ![self fb_shouldContinueExecution]) {
                         break;
                     }
-                    
                     @try {
-                        id childElement = [axElement accessibilityElementAtIndex:i];
-                        if (childElement) {
-                            [self fb_processAccessibilityChild:childElement
-                                               elementRegistry:elementRegistry
-                                                  parentElement:parentElement
-                                                   currentDepth:currentDepth
-                                                       maxDepth:maxDepth];
+                        id childAxElement = [axElement accessibilityElementAtIndex:i];
+                        if (childAxElement) {
+                            if (childrenRelativeDepth < maxRelDepthLimit) {
+                                [self fb_processAccessibilityChild_IterativeHelper:childAxElement
+                                                                   elementRegistry:elementRegistry
+                                                                      parentElement:parentElementDict
+                                                        childAccessibilityRelativeDepth:childrenRelativeDepth
+                                                        maxAccessibilityRelativeDepthLimit:maxRelDepthLimit
+                                                                            processingQueue:processingQueue
+                                                             processedElementIDsDuringPhase:processedElementIDsDuringPhase
+                                                                        parentOverallDepth:parentOverallDepth];
+                            }
                         }
                     } @catch (NSException *exception) {
-                        // Continue with next child
-                        continue;
+                        [FBLogger logFmt:@"Exception getting accessibility child at index %ld for point %@: %@", (long)i, NSStringFromCGPoint(point), exception.reason];
                     }
                 }
             }
         } @catch (NSException *exception) {
-            [FBLogger logFmt:@"Exception traversing accessibility children: %@", exception.reason];
+            [FBLogger logFmt:@"Exception traversing accessibility children for point %@: %@", NSStringFromCGPoint(point), exception.reason];
         }
-        
-        completed = YES;
+        completedOrTimedOut = YES;
     }];
-    
-    // Wait for completion with timeout
-    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:1.0];
-    while (!completed && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+
+    while (!completedOrTimedOut && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
+        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    }
+    if (!completedOrTimedOut) {
+        [FBLogger logFmt:@"Timeout waiting for _XCT_requestElementAtPoint at %@", NSStringFromCGPoint(point)];
     }
 }
 
-- (void)fb_processAccessibilityChild:(id)childElement
-                     elementRegistry:(NSMutableDictionary *)elementRegistry
-                        parentElement:(NSDictionary *)parentElement
-                         currentDepth:(NSInteger)currentDepth
-                             maxDepth:(NSInteger)maxDepth {
-    
+- (void)fb_processAccessibilityChild_IterativeHelper:(id)childAxElement
+                                     elementRegistry:(NSMutableDictionary *)elementRegistry
+                                        parentElement:(NSDictionary *)axParentElementDict
+                          childAccessibilityRelativeDepth:(NSInteger)childRelativeDepth
+                         maxAccessibilityRelativeDepthLimit:(NSInteger)maxRelDepthLimit
+                                      processingQueue:(NSMutableArray<NSDictionary *> *)processingQueue
+                       processedElementIDsDuringPhase:(NSMutableSet<NSString *> *)processedElementIDsDuringPhase
+                                   parentOverallDepth:(NSInteger)parentOverallDepth {
     id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
-    if (!proxy) {
+    if (!proxy || ![self fb_shouldContinueExecution]) {
         return;
     }
-    if (![self fb_shouldContinueExecution]) {
-      return;
-    }
-    
+
     NSDictionary *minimalParams = @{
-        @"maxDepth": @5,
+        @"maxDepth": @5, // Max depth for snapshot internal structure, not traversal depth
         @"maxArrayCount": @1,
-        @"maxChildren": @5,
+        @"maxChildren": @5, // Max children within snapshot, not traversal
         @"includeInvisible": @YES
     };
-    
     NSArray<NSString *> *basicAttributes = [self fb_getBasicAttributes];
-    
-    __block BOOL completed = NO;
-    
-    [proxy _XCT_requestSnapshotForElement:childElement
+    __block BOOL completedOrTimedOut = NO;
+    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:0.5];
+
+    [proxy _XCT_requestSnapshotForElement:childAxElement
                                attributes:basicAttributes
                                parameters:minimalParams
                                     reply:^(id snapshotObject, NSError *snapshotError) {
-        if (!snapshotError && snapshotObject) {
+        if (!snapshotError && snapshotObject && [self fb_shouldContinueExecution]) {
             @try {
                 CGPoint elementCenter = CGPointMake(0, 0);
                 if ([snapshotObject respondsToSelector:@selector(frame)]) {
                     CGRect frame = [snapshotObject frame];
-                    elementCenter = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+                    if (!CGRectIsEmpty(frame) && !CGRectIsNull(frame)) {
+                        elementCenter = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+                    } else {
+                        NSDictionary *parentRect = axParentElementDict[@"rect"];
+                        if (parentRect) {
+                            elementCenter = CGPointMake(
+                                [parentRect[@"x"] floatValue] + [parentRect[@"width"] floatValue] / 2,
+                                [parentRect[@"y"] floatValue] + [parentRect[@"height"] floatValue] / 2
+                            );
+                        }
+                    }
                 }
-                
+
                 NSDictionary *childElementDict = [self fb_minimalDictionaryFromSnapshot:snapshotObject point:elementCenter];
                 NSString *childElementID = [self fb_createElementIdentifier:childElementDict];
-                
-              if (![elementRegistry objectForKey:childElementID] && ![self.processedElementIDs containsObject:childElementID]) {
-                    NSMutableDictionary *enrichedChild = [childElementDict mutableCopy];
-                    enrichedChild[@"depth"] = @(currentDepth);
-                    enrichedChild[@"discoveryMethod"] = @"accessibility";
-                    enrichedChild[@"parentID"] = [self fb_createElementIdentifier:parentElement];
-                    
-                    elementRegistry[childElementID] = enrichedChild;
-                    [self.processedElementIDs addObject:childElementID];
 
-                    
-                    [FBLogger logFmt:@"Discovered accessibility child: %@ (depth %ld)",
-                     childElementDict[@"type"], (long)currentDepth];
-                    
-                  if (currentDepth < maxDepth && [self fb_shouldContinueExecution]) {
-                        [self fb_traverseAccessibilityChildren:enrichedChild
-                                               elementRegistry:elementRegistry
-                                                      maxDepth:maxDepth
-                                                  currentDepth:currentDepth];
+                BOOL alreadyInRegistry = ([elementRegistry objectForKey:childElementID] != nil);
+
+                if (!alreadyInRegistry) {
+                    NSMutableDictionary *enrichedChild = [childElementDict mutableCopy];
+                    NSInteger grandParentOverallDepth = [axParentElementDict[@"depth"] integerValue];
+                    enrichedChild[@"depth"] = @(grandParentOverallDepth + 1);
+                    enrichedChild[@"discoveryMethod"] = @"accessibility";
+                    enrichedChild[@"parentID"] = [self fb_createElementIdentifier:axParentElementDict];
+
+                    elementRegistry[childElementID] = enrichedChild;
+                    if (childRelativeDepth < maxRelDepthLimit && ![processedElementIDsDuringPhase containsObject:childElementID]) {
+                        [processingQueue addObject:@{
+                            @"element": enrichedChild,
+                            @"accessibilityDepth": @(childRelativeDepth)
+                        }];
                     }
                 }
             } @catch (NSException *exception) {
-                // Continue processing
+                [FBLogger logFmt:@"Exception processing accessibility child snapshot: %@", exception.reason];
             }
+        } else if (snapshotError) {
+             [FBLogger logFmt:@"Snapshot error for accessibility child: %@", snapshotError.localizedDescription];
         }
-        completed = YES;
+        completedOrTimedOut = YES;
     }];
-    
-    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:0.5];
-    while (!completed && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
+
+    while (!completedOrTimedOut && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
         [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
     }
+    if (!completedOrTimedOut) {
+       [FBLogger logFmt:@"Timeout waiting for _XCT_requestSnapshotForElement for an accessibility child."];
+    }
 }
+
+//- (void)fb_performAccessibilityTraversal:(NSMutableArray<NSDictionary *> *)discoveredElements
+//                         elementRegistry:(NSMutableDictionary *)elementRegistry
+//                                maxDepth:(NSInteger)maxDepth {
+//    
+//    [FBLogger logFmt:@"Phase 3: Accessibility traversal"];
+//    
+//    NSInteger maxElementsToTraverse = discoveredElements.count;
+//    NSArray<NSDictionary *> *elementsToTraverse = [discoveredElements subarrayWithRange:NSMakeRange(0, maxElementsToTraverse)];
+//
+//    for (NSDictionary *elementDict in elementsToTraverse) {
+//        if (![self fb_shouldContinueExecution] || [elementRegistry count] > kFBMaxElementsLimit) {
+//            [FBLogger logFmt:@"Reached element limit, stopping accessibility traversal"];
+//            break;
+//        }
+//        
+//        [self fb_traverseAccessibilityChildren:elementDict
+//                               elementRegistry:elementRegistry
+//                                      maxDepth:maxDepth
+//                                  currentDepth:0];
+//    }
+//}
+
+//- (void)fb_traverseAccessibilityChildren:(NSDictionary *)parentElement
+//                         elementRegistry:(NSMutableDictionary *)elementRegistry
+//                                maxDepth:(NSInteger)maxDepth
+//                            currentDepth:(NSInteger)currentDepth {
+//    
+//    if (currentDepth >= maxDepth || [elementRegistry count] > kFBMaxElementsLimit || ![self fb_shouldContinueExecution]) {
+//        return;
+//    }
+//    NSString *parentID = [self fb_createElementIdentifier:parentElement];
+//    if ([self.processedElementIDs containsObject:parentID]) {
+//        return;
+//    }
+//    [self.processedElementIDs addObject:parentID];
+//    // Get the center point of the parent element to query its accessibility element
+//    NSDictionary *rect = parentElement[@"rect"];
+//    CGPoint centerPoint = CGPointMake(
+//        [rect[@"x"] floatValue] + [rect[@"width"] floatValue] / 2,
+//        [rect[@"y"] floatValue] + [rect[@"height"] floatValue] / 2
+//    );
+//    
+//    [self fb_findAccessibilityChildrenAtPoint:centerPoint
+//                              elementRegistry:elementRegistry
+//                                 parentElement:parentElement
+//                                  currentDepth:currentDepth + 1
+//                                      maxDepth:maxDepth];
+//}
+//
+//- (void)fb_findAccessibilityChildrenAtPoint:(CGPoint)point
+//                            elementRegistry:(NSMutableDictionary *)elementRegistry
+//                             parentElement:(NSDictionary *)parentElement
+//                              currentDepth:(NSInteger)currentDepth
+//                                  maxDepth:(NSInteger)maxDepth {
+//    
+//    id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
+//    if (!proxy) {
+//        return;
+//    }
+//    if (![self fb_shouldContinueExecution]) {
+//      return;
+//    }
+//    
+//    __block BOOL completed = NO;
+//    
+//    [proxy _XCT_requestElementAtPoint:point reply:^(id axElement, NSError *error) {
+//        if (error || !axElement) {
+//            completed = YES;
+//            return;
+//        }
+//        
+//        @try {
+//            NSInteger childCount = 0;
+//            if ([axElement respondsToSelector:@selector(accessibilityElementCount)]) {
+//                childCount = [axElement accessibilityElementCount];
+//            }
+//            
+//            if (childCount > 0
+//                //&& childCount < 50
+//                ) {
+//                for (NSInteger i = 0; i < childCount; i++) {
+//                    if ([elementRegistry count] > kFBMaxElementsLimit || ![self fb_shouldContinueExecution]) {
+//                        break;
+//                    }
+//                    
+//                    @try {
+//                        id childElement = [axElement accessibilityElementAtIndex:i];
+//                        if (childElement) {
+//                            [self fb_processAccessibilityChild:childElement
+//                                               elementRegistry:elementRegistry
+//                                                  parentElement:parentElement
+//                                                   currentDepth:currentDepth
+//                                                       maxDepth:maxDepth];
+//                        }
+//                    } @catch (NSException *exception) {
+//                        // Continue with next child
+//                        continue;
+//                    }
+//                }
+//            }
+//        } @catch (NSException *exception) {
+//            [FBLogger logFmt:@"Exception traversing accessibility children: %@", exception.reason];
+//        }
+//        
+//        completed = YES;
+//    }];
+//    
+//    // Wait for completion with timeout
+//    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:1.0];
+//    while (!completed && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
+//        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+//    }
+//}
+//
+//- (void)fb_processAccessibilityChild:(id)childElement
+//                     elementRegistry:(NSMutableDictionary *)elementRegistry
+//                        parentElement:(NSDictionary *)parentElement
+//                         currentDepth:(NSInteger)currentDepth
+//                             maxDepth:(NSInteger)maxDepth {
+//    
+//    id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
+//    if (!proxy) {
+//        return;
+//    }
+//    if (![self fb_shouldContinueExecution]) {
+//      return;
+//    }
+//    
+//    NSDictionary *minimalParams = @{
+//        @"maxDepth": @5,
+//        @"maxArrayCount": @1,
+//        @"maxChildren": @5,
+//        @"includeInvisible": @YES
+//    };
+//    
+//    NSArray<NSString *> *basicAttributes = [self fb_getBasicAttributes];
+//    
+//    __block BOOL completed = NO;
+//    
+//    [proxy _XCT_requestSnapshotForElement:childElement
+//                               attributes:basicAttributes
+//                               parameters:minimalParams
+//                                    reply:^(id snapshotObject, NSError *snapshotError) {
+//        if (!snapshotError && snapshotObject) {
+//            @try {
+//                CGPoint elementCenter = CGPointMake(0, 0);
+//                if ([snapshotObject respondsToSelector:@selector(frame)]) {
+//                    CGRect frame = [snapshotObject frame];
+//                    elementCenter = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+//                }
+//                
+//                NSDictionary *childElementDict = [self fb_minimalDictionaryFromSnapshot:snapshotObject point:elementCenter];
+//                NSString *childElementID = [self fb_createElementIdentifier:childElementDict];
+//                
+//              if (![elementRegistry objectForKey:childElementID] && ![self.processedElementIDs containsObject:childElementID]) {
+//                    NSMutableDictionary *enrichedChild = [childElementDict mutableCopy];
+//                    enrichedChild[@"depth"] = @(currentDepth);
+//                    enrichedChild[@"discoveryMethod"] = @"accessibility";
+//                    enrichedChild[@"parentID"] = [self fb_createElementIdentifier:parentElement];
+//                    
+//                    elementRegistry[childElementID] = enrichedChild;
+//                    [self.processedElementIDs addObject:childElementID];
+//
+//                    
+//                    [FBLogger logFmt:@"Discovered accessibility child: %@ (depth %ld)",
+//                     childElementDict[@"type"], (long)currentDepth];
+//                    
+//                  if (currentDepth < maxDepth && [self fb_shouldContinueExecution]) {
+//                        [self fb_traverseAccessibilityChildren:enrichedChild
+//                                               elementRegistry:elementRegistry
+//                                                      maxDepth:maxDepth
+//                                                  currentDepth:currentDepth];
+//                    }
+//                }
+//            } @catch (NSException *exception) {
+//                // Continue processing
+//            }
+//        }
+//        completed = YES;
+//    }];
+//    
+//    NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:0.5];
+//    while (!completed && [timeoutDate timeIntervalSinceNow] > 0 && [self fb_shouldContinueExecution]) {
+//        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+//    }
+//}
 
 #pragma mark - Phase 4: Optimized Hierarchy Building
 

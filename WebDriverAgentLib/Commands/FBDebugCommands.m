@@ -107,9 +107,9 @@ static NSString *const SOURCE_FORMAT_DESCRIPTION = @"description";
       // Extract grid sampling parameters
       NSMutableDictionary *samplingParams = [NSMutableDictionary dictionary];
       
-       samplingParams[@"samplesX"] = request.parameters[@"samplesX"] ?: @7;
-       samplingParams[@"samplesY"] = request.parameters[@"samplesY"] ?: @15;
-       samplingParams[@"maxRecursionDepth"] = request.parameters[@"maxRecursionDepth"] ?: @8;
+       samplingParams[@"samplesX"] = request.parameters[@"samplesX"];
+       samplingParams[@"samplesY"] = request.parameters[@"samplesY"];
+       samplingParams[@"maxRecursionDepth"] = request.parameters[@"maxRecursionDepth"];
        
       
       NSDictionary *gridSampledTree = [application fb_gridSampledTreeWithParameters:samplingParams];
