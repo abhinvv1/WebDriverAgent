@@ -1,160 +1,435 @@
-//
-//  FBRNViewXMLConverter.m
-//  WebDriverAgent
-//
-//  Created by Abhinav Pandey on 22/05/25.
-//  Copyright © 2025 Facebook. All rights reserved.
-//
 
 #import "FBRNViewXMLConverter.h"
-#import "RNUiInspector.h"
-#import "NSString+FBXMLSafeString.h"
 #import "FBElementTypeTransformer.h"
-#import "FBXMLGenerationOptions.h"
+#import "FBApplicationSnapshot.h"
+#import "FBCompositeSnapshot.h"
 #import "FBLogger.h"
-#import <UIKit/UIKit.h>
 
-static void FB_AppendRNNodeToXMLRecursive(NSDictionary *node, NSMutableString *xmlString, FBXMLGenerationOptions *options, NSUInteger *elementUIDFallbackCounter, NSString *parentUID);
-
-static NSString *FB_GetRNElementTypeStringFromNode(NSDictionary *rnNode) {
-    NSString *rnType = [rnNode[@"type"] description];
-    if (!rnType || rnType.length == 0) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeOther];
-    }
-
-    if ([rnType isEqualToString:@"Button"] || [rnType containsString:@"Button"]) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeButton];
-    } else if ([rnType isEqualToString:@"Text"] || [rnType hasPrefix:@"RCTText"] || [rnType hasPrefix:@"ABIYYYText"]) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeStaticText];
-    } else if ([rnType isEqualToString:@"TextInput"] || [rnType hasPrefix:@"RCTTextInput"] || [rnType hasPrefix:@"ABIYYYTextInput"]) {
-        NSDictionary *props = rnNode[@"props"];
-        if (props && [props[@"multiline"] boolValue]) {
-            return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeTextView];
+@implementation FBGridSampledXMLConverter
++ (NSString *)fb_xmlStringFromSnapshot:(id<FBXCElementSnapshot>)snapshot atIndex:(NSInteger)index depth:(NSInteger)depth {
+    NSMutableString *xml = [NSMutableString string];
+    
+    // Create element tag
+    NSString *elementType = [self fb_elementTypeStringFromSnapshot:snapshot];
+    NSString *indentation = [self fb_indentationForDepth:depth];
+    
+    [xml appendFormat:@"%@<%@", indentation, elementType];
+    
+    // Add attributes
+    [xml appendString:[self fb_attributesStringFromSnapshot:snapshot atIndex:index]];
+    
+    // Get children - handle both regular snapshots and custom composite snapshots
+    NSArray *children = [self fb_getChildrenFromSnapshot:snapshot];
+    BOOL hasChildren = children && children.count > 0;
+    
+    if (hasChildren) {
+        [xml appendString:@">\n"];
+        
+        [FBLogger logFmt:@"Processing element %@ with %lu children at depth %ld",
+         elementType, (unsigned long)children.count, (long)depth];
+        
+        // Add children
+        for (NSInteger i = 0; i < children.count; i++) {
+            id childSnapshot = children[i];
+//            if ([childSnapshot conformsToProtocol:@protocol(FBXCElementSnapshot)]) {
+                [xml appendString:[self fb_xmlStringFromSnapshot:childSnapshot atIndex:i depth:depth + 1]];
+//            } else {
+//                [FBLogger logFmt:@"Skipping non-snapshot child at index %ld", (long)i];
+//            }
         }
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeTextField];
-    } else if ([rnType isEqualToString:@"Image"] || [rnType hasPrefix:@"RCTImage"] || [rnType hasPrefix:@"ABIYYYImage"]) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeImage];
-    } else if ([rnType isEqualToString:@"View"] || [rnType hasPrefix:@"RCTView"] || [rnType hasPrefix:@"ABIYYYView"]) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeOther];
-    } else if ([rnType isEqualToString:@"ScrollView"] || [rnType hasPrefix:@"RCTScrollView"] || [rnType hasPrefix:@"ABIYYYScrollView"]) {
-        return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeScrollView];
-    }
-    NSString *sanitizedRNType = [[rnType componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]] componentsJoinedByString:@""];
-    if (sanitizedRNType.length > 0) {
-        return sanitizedRNType;
-    }
-    return [FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeOther];
-}
-
-static NSString *FB_ConvertRNDictToRectXMLAttributesString(NSDictionary *rectDict) {
-    if (!rectDict || ![rectDict isKindOfClass:[NSDictionary class]]) return @"";
-    CGFloat x = [rectDict[@"x"] floatValue];
-    CGFloat y = [rectDict[@"y"] floatValue];
-    CGFloat width = [rectDict[@"width"] floatValue];
-    CGFloat height = [rectDict[@"height"] floatValue];
-    return [NSString stringWithFormat:@" x=\"%.f\" y=\"%.f\" width=\"%.f\" height=\"%.f\"", x, y, width, height];
-}
-
-
-static void FB_AppendRNNodeToXMLRecursive(NSDictionary *node, NSMutableString *xmlString, FBXMLGenerationOptions *options, NSUInteger *elementUIDFallbackCounter, NSString *parentUID) {
-    if (!node || ![node isKindOfClass:[NSDictionary class]]) return;
-
-    NSString *elementType = FB_GetRNElementTypeStringFromNode(node);
-    NSMutableString *attributes = [NSMutableString string];
-
-    id name = node[@"name"];
-    if (name && [name isKindOfClass:[NSString class]] && ((NSString *)name).length > 0) {
-      [
-        attributes appendFormat:@" name=\"%@\"",
-        [(NSString*)name fb_xmlSafeStringWithReplacement:@""]
-      ];
-    }
-
-    id label = node[@"label"];
-    if (label && [label isKindOfClass:[NSString class]] && ((NSString *)label).length > 0) {
-      [
-        attributes appendFormat:@" label=\"%@\"",
-        [(NSString*)label fb_xmlSafeStringWithReplacement:@""]
-      ];
-    }
-    
-    id value = node[@"value"];
-    if (!value && node[@"text"]) {
-        value = node[@"text"];
-    }
-    if (value) {
-        NSString *stringValue = [value description];
-        if (options && false && // proper property add karni hai yahape
-            ([elementType isEqualToString:[FBElementTypeTransformer shortStringWithElementType:XCUIElementTypeSecureTextField]] ||
-             (name && [[(NSString*)name lowercaseString] containsString:@"password"]))) {
-            stringValue = [@"" stringByPaddingToLength:stringValue.length withString:@"*" startingAtIndex:0];
-        }
-        [
-          attributes appendFormat:@" value=\"%@\"",
-          [stringValue fb_xmlSafeStringWithReplacement:@""]
-        ];
-    }
-    
-    id placeholder = node[@"placeholder"];
-    if (placeholder && [placeholder isKindOfClass:[NSString class]] && ((NSString *)placeholder).length > 0) {
-      [
-        attributes appendFormat:@" placeholder=\"%@\"",
-        [(NSString*)placeholder fb_xmlSafeStringWithReplacement:@""]
-      ];
-    }
-
-    NSDictionary *rect = node[@"rect"];
-    [attributes appendString:FB_ConvertRNDictToRectXMLAttributesString(rect)];
-
-  NSString *uid = node[kRNUiInspectorNativeHandleKey];
-    if (!uid || ![uid isKindOfClass:[NSString class]] || uid.length == 0) {
-        uid = [NSString stringWithFormat:@"RN_generated_%@_%lu", parentUID ?: @"root", (unsigned long)(*elementUIDFallbackCounter)++];
-        [FBLogger logFmt:@"Warning: Missing nativeHandle for node: %@. Generated fallback UID: %@", node[@"type"], uid];
-    }
-    [
-      attributes appendFormat:@" UID=\"%@\"",
-      [uid fb_xmlSafeStringWithReplacement:@""]
-    ];
-
-    BOOL isVisible = [node[@"visible"] boolValue];
-    BOOL isEnabled = [node[@"enabled"] boolValue];
-    
-    [attributes appendFormat:@" visible=\"%@\"", isVisible ? @"true" : @"false"];
-    [attributes appendFormat:@" enabled=\"%@\"", isEnabled ? @"true" : @"false"];
-    
-    // Type attribute (already used for the tag name, but can be added as an attribute too if desired for clarity)
-    // [attributes appendFormat:@" type=\"%@\"", elementType];
-
-    [xmlString appendFormat:@"<%@%@", elementType, attributes];
-
-    NSArray *children = node[@"children"];
-    if (children && [children isKindOfClass:[NSArray class]] && children.count > 0) {
-        [xmlString appendString:@">\n"];
-        for (NSDictionary *childNode in children) {
-            FB_AppendRNNodeToXMLRecursive(childNode, xmlString, options, elementUIDFallbackCounter, uid);
-        }
-        [xmlString appendFormat:@"</%@>\n", elementType];
+        
+        [xml appendFormat:@"%@</%@>\n", indentation, elementType];
     } else {
-        [xmlString appendString:@" />\n"];
+        [xml appendString:@"/>\n"];
+        [FBLogger logFmt:@"Element %@ has no children", elementType];
     }
+    
+    return xml;
 }
 
-
-@implementation FBRNViewXMLConverter
-
-+ (nullable NSString *)xmlStringFromRNTree:(NSDictionary *)rnTree options:(nullable FBXMLGenerationOptions *)options {
-    if (!rnTree || rnTree.count == 0) {
-        [FBLogger log:@"React Native tree is nil or empty. Cannot generate XML."];
+// New helper method to properly extract children from any snapshot type
++ (NSArray *)fb_getChildrenFromSnapshot:(id<FBXCElementSnapshot>)snapshot {
+    if (!snapshot) {
         return nil;
     }
+    
+    // Try to get children property directly
+    if ([snapshot respondsToSelector:@selector(children)]) {
+        NSArray *children = [snapshot children];
+        if (children && [children isKindOfClass:[NSArray class]]) {
+            [FBLogger logFmt:@"Found %lu children via children property", (unsigned long)children.count];
+            return children;
+        }
+    }
+    
+    // For FBApplicationSnapshot specifically
+    if ([snapshot isKindOfClass:[FBApplicationSnapshot class]]) {
+        FBApplicationSnapshot *appSnapshot = (FBApplicationSnapshot *)snapshot;
+        NSArray *children = appSnapshot.children;
+        [FBLogger logFmt:@"FBApplicationSnapshot has %lu children", (unsigned long)children.count];
+        return children;
+    }
+    
+    // For FBCompositeSnapshot specifically
+    if ([snapshot isKindOfClass:[FBCompositeSnapshot class]]) {
+        FBCompositeSnapshot *compositeSnapshot = (FBCompositeSnapshot *)snapshot;
+        NSArray *children = compositeSnapshot.children;
+        [FBLogger logFmt:@"FBCompositeSnapshot has %lu children", (unsigned long)children.count];
+        return children;
+    }
+    
+    [FBLogger logFmt:@"No children found for snapshot type: %@", NSStringFromClass([snapshot class])];
+    return nil;
+}
 
-    NSMutableString *xmlOutput = [NSMutableString string];
-    [xmlOutput appendString:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"];
+// Updated main conversion method with better logging
++ (NSString *)xmlStringFromGridSampledSnapshot:(id<FBXCElementSnapshot>)rootSnapshot {
+    if (!rootSnapshot) {
+        [FBLogger logFmt:@"Root snapshot is nil, returning empty hierarchy"];
+        return @"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<hierarchy/>";
+    }
     
-    NSUInteger uidFallbackCounter = 0;
-    FB_AppendRNNodeToXMLRecursive(rnTree, xmlOutput, options, &uidFallbackCounter, @"app");
+    [FBLogger logFmt:@"Starting XML conversion for root snapshot: %@", NSStringFromClass([rootSnapshot class])];
     
-    return [xmlOutput copy];
+    // Check if root has children
+    NSArray *rootChildren = [self fb_getChildrenFromSnapshot:rootSnapshot];
+    [FBLogger logFmt:@"Root snapshot has %lu children", (unsigned long)rootChildren.count];
+    
+    NSMutableString *xmlString = [NSMutableString string];
+    [xmlString appendString:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"];
+    [xmlString appendString:[self fb_xmlStringFromSnapshot:rootSnapshot atIndex:0 depth:0]];
+    
+    [FBLogger logFmt:@"Generated XML page source with length: %lu", (unsigned long)xmlString.length];
+    
+    // Debug: print first 500 chars of XML
+    NSString *preview = xmlString.length > 500 ? [xmlString substringToIndex:500] : xmlString;
+    [FBLogger logFmt:@"XML Preview: %@", preview];
+    
+    return [xmlString copy];
+}
+
++ (NSString *)fb_elementTypeStringFromSnapshot:(id<FBXCElementSnapshot>)snapshot {
+    NSString *elementType = [FBElementTypeTransformer stringWithElementType:snapshot.elementType];
+    
+    // Map XCUIElement types to more readable XML element names
+    static NSDictionary *typeMapping = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        typeMapping = @{
+            @"XCUIElementTypeApplication": @"application",
+            @"XCUIElementTypeWindow": @"window",
+            @"XCUIElementTypeSheet": @"sheet",
+            @"XCUIElementTypeDrawer": @"drawer",
+            @"XCUIElementTypeAlert": @"alert",
+            @"XCUIElementTypeDialog": @"dialog",
+            @"XCUIElementTypeButton": @"button",
+            @"XCUIElementTypeRadioButton": @"radio",
+            @"XCUIElementTypeRadioGroup": @"radiogroup",
+            @"XCUIElementTypeCheckBox": @"checkbox",
+            @"XCUIElementTypeDisclosureTriangle": @"disclosure",
+            @"XCUIElementTypePopUpButton": @"popup",
+            @"XCUIElementTypeComboBox": @"combobox",
+            @"XCUIElementTypeMenuButton": @"menubutton",
+            @"XCUIElementTypeToolbarButton": @"toolbarbutton",
+            @"XCUIElementTypePopover": @"popover",
+            @"XCUIElementTypeKeyboard": @"keyboard",
+            @"XCUIElementTypeKey": @"key",
+            @"XCUIElementTypeNavigationBar": @"navbar",
+            @"XCUIElementTypeTabBar": @"tabbar",
+            @"XCUIElementTypeTabGroup": @"tabgroup",
+            @"XCUIElementTypeToolbar": @"toolbar",
+            @"XCUIElementTypeStatusBar": @"statusbar",
+            @"XCUIElementTypeTable": @"table",
+            @"XCUIElementTypeTableRow": @"row",
+            @"XCUIElementTypeTableColumn": @"column",
+            @"XCUIElementTypeOutline": @"outline",
+            @"XCUIElementTypeOutlineRow": @"outlinerow",
+            @"XCUIElementTypeBrowser": @"browser",
+            @"XCUIElementTypeCollectionView": @"collection",
+            @"XCUIElementTypeSlider": @"slider",
+            @"XCUIElementTypePageIndicator": @"pageindicator",
+            @"XCUIElementTypeProgressIndicator": @"progress",
+            @"XCUIElementTypeActivityIndicator": @"activity",
+            @"XCUIElementTypeSegmentedControl": @"segmented",
+            @"XCUIElementTypePicker": @"picker",
+            @"XCUIElementTypePickerWheel": @"pickerwheel",
+            @"XCUIElementTypeSwitch": @"switch",
+            @"XCUIElementTypeToggle": @"toggle",
+            @"XCUIElementTypeLink": @"link",
+            @"XCUIElementTypeImage": @"image",
+            @"XCUIElementTypeIcon": @"icon",
+            @"XCUIElementTypeSearchField": @"searchfield",
+            @"XCUIElementTypeScrollView": @"scrollview",
+            @"XCUIElementTypeScrollBar": @"scrollbar",
+            @"XCUIElementTypeStaticText": @"text",
+            @"XCUIElementTypeTextField": @"textfield",
+            @"XCUIElementTypeSecureTextField": @"securetextfield",
+            @"XCUIElementTypeDatePicker": @"datepicker",
+            @"XCUIElementTypeTextView": @"textview",
+            @"XCUIElementTypeMenu": @"menu",
+            @"XCUIElementTypeMenuItem": @"menuitem",
+            @"XCUIElementTypeMenuBar": @"menubar",
+            @"XCUIElementTypeMenuBarItem": @"menubaritem",
+            @"XCUIElementTypeMap": @"map",
+            @"XCUIElementTypeWebView": @"webview",
+            @"XCUIElementTypeIncrementArrow": @"increment",
+            @"XCUIElementTypeDecrementArrow": @"decrement",
+            @"XCUIElementTypeTimeline": @"timeline",
+            @"XCUIElementTypeRatingIndicator": @"rating",
+            @"XCUIElementTypeValueIndicator": @"value",
+            @"XCUIElementTypeSplitGroup": @"splitgroup",
+            @"XCUIElementTypeSplitter": @"splitter",
+            @"XCUIElementTypeRelevanceIndicator": @"relevance",
+            @"XCUIElementTypeColorWell": @"colorwell",
+            @"XCUIElementTypeHelpTag": @"help",
+            @"XCUIElementTypeMatte": @"matte",
+            @"XCUIElementTypeDockItem": @"dockitem",
+            @"XCUIElementTypeRuler": @"ruler",
+            @"XCUIElementTypeRulerMarker": @"rulermarker",
+            @"XCUIElementTypeGrid": @"grid",
+            @"XCUIElementTypeLevelIndicator": @"levelindicator",
+            @"XCUIElementTypeCell": @"cell",
+            @"XCUIElementTypeLayoutArea": @"layoutarea",
+            @"XCUIElementTypeLayoutItem": @"layoutitem",
+            @"XCUIElementTypeHandle": @"handle",
+            @"XCUIElementTypeStepper": @"stepper",
+            @"XCUIElementTypeTab": @"tab",
+            @"XCUIElementTypeTouchBar": @"touchbar",
+            @"XCUIElementTypeGroup": @"group",
+            @"XCUIElementTypeOther": @"other"
+        };
+    });
+    
+    NSString *mappedType = typeMapping[elementType];
+    return mappedType ?: @"other";
+}
+
++ (NSString *)fb_attributesStringFromSnapshot:(id<FBXCElementSnapshot>)snapshot atIndex:(NSInteger)index {
+    NSMutableString *attributes = [NSMutableString string];
+    
+    // Basic attributes
+    if (snapshot.identifier && snapshot.identifier.length > 0) {
+        [attributes appendFormat:@" resource-id=\"%@\"", [self fb_escapeXMLString:snapshot.identifier]];
+    }
+    
+    if (snapshot.label && snapshot.label.length > 0) {
+        [attributes appendFormat:@" content-desc=\"%@\"", [self fb_escapeXMLString:snapshot.label]];
+    }
+    
+    if (snapshot.title && snapshot.title.length > 0) {
+        [attributes appendFormat:@" name=\"%@\"", [self fb_escapeXMLString:snapshot.title]];
+    }
+    
+    if (snapshot.value) {
+        NSString *valueString = [self fb_stringFromValue:snapshot.value];
+        if (valueString.length > 0) {
+            [attributes appendFormat:@" value=\"%@\"", [self fb_escapeXMLString:valueString]];
+        }
+    }
+    
+    // Frame attributes
+    CGRect frame = snapshot.frame;
+    [attributes appendFormat:@" x=\"%.0f\"", frame.origin.x];
+    [attributes appendFormat:@" y=\"%.0f\"", frame.origin.y];
+    [attributes appendFormat:@" width=\"%.0f\"", frame.size.width];
+    [attributes appendFormat:@" height=\"%.0f\"", frame.size.height];
+    
+    // Bounds (for compatibility)
+    [attributes appendFormat:@" bounds=\"[%.0f,%.0f][%.0f,%.0f]\"",
+     frame.origin.x, frame.origin.y,
+     frame.origin.x + frame.size.width, frame.origin.y + frame.size.height];
+    
+    // Boolean attributes
+    [attributes appendFormat:@" enabled=\"%@\"", snapshot.enabled ? @"true" : @"false"];
+    [attributes appendFormat:@" visible=\"%@\"", !CGRectIsEmpty(snapshot.visibleFrame) ? @"true" : @"false"];
+    
+    // Additional attributes if available
+    if ([snapshot respondsToSelector:@selector(selected)]) {
+        [attributes appendFormat:@" selected=\"%@\"", snapshot.selected ? @"true" : @"false"];
+    }
+    
+    if ([snapshot respondsToSelector:@selector(hasFocus)]) {
+        [attributes appendFormat:@" focused=\"%@\"", snapshot.hasFocus ? @"true" : @"false"];
+    }
+    
+    if ([snapshot respondsToSelector:@selector(placeholderValue)] && snapshot.placeholderValue) {
+        [attributes appendFormat:@" hint=\"%@\"", [self fb_escapeXMLString:snapshot.placeholderValue]];
+    }
+    
+    // Index attribute
+    [attributes appendFormat:@" index=\"%ld\"", (long)index];
+    
+    // Package (application bundle identifier)
+    [attributes appendString:@" package=\"com.apple.test.WebDriverAgentRunner-Runner\""];
+    
+    // Class name (element type)
+    NSString *className = [FBElementTypeTransformer stringWithElementType:snapshot.elementType];
+    [attributes appendFormat:@" class=\"%@\"", className ?: @"XCUIElementTypeOther"];
+    
+    // Checkable and checked attributes (for compatibility)
+    BOOL isCheckable = (snapshot.elementType == XCUIElementTypeCheckBox ||
+                       snapshot.elementType == XCUIElementTypeSwitch ||
+                       snapshot.elementType == XCUIElementTypeToggle);
+    [attributes appendFormat:@" checkable=\"%@\"", isCheckable ? @"true" : @"false"];
+    
+    if (isCheckable && [snapshot respondsToSelector:@selector(selected)]) {
+        [attributes appendFormat:@" checked=\"%@\"", snapshot.selected ? @"true" : @"false"];
+    } else {
+        [attributes appendString:@" checked=\"false\""];
+    }
+    
+    // Clickable attribute
+    BOOL isClickable = (snapshot.elementType == XCUIElementTypeButton ||
+                       snapshot.elementType == XCUIElementTypeLink ||
+                       snapshot.elementType == XCUIElementTypeCell ||
+                       snapshot.elementType == XCUIElementTypeMenuItem ||
+                       snapshot.elementType == XCUIElementTypeTab);
+    [attributes appendFormat:@" clickable=\"%@\"", isClickable ? @"true" : @"false"];
+    
+    // Focusable attribute
+    BOOL isFocusable = (snapshot.elementType == XCUIElementTypeTextField ||
+                       snapshot.elementType == XCUIElementTypeSecureTextField ||
+                       snapshot.elementType == XCUIElementTypeTextView ||
+                       snapshot.elementType == XCUIElementTypeSearchField);
+    [attributes appendFormat:@" focusable=\"%@\"", isFocusable ? @"true" : @"false"];
+    
+    // Long-clickable (always false for iOS)
+    [attributes appendString:@" long-clickable=\"false\""];
+    
+    // Password attribute
+    BOOL isPassword = (snapshot.elementType == XCUIElementTypeSecureTextField);
+    [attributes appendFormat:@" password=\"%@\"", isPassword ? @"true" : @"false"];
+    
+    // Scrollable attribute
+    BOOL isScrollable = (snapshot.elementType == XCUIElementTypeScrollView ||
+                        snapshot.elementType == XCUIElementTypeTable ||
+                        snapshot.elementType == XCUIElementTypeCollectionView);
+    [attributes appendFormat:@" scrollable=\"%@\"", isScrollable ? @"true" : @"false"];
+    
+    return attributes;
+}
+
++ (NSString *)fb_stringFromValue:(id)value {
+    if (!value) {
+        return @"";
+    }
+    
+    if ([value isKindOfClass:[NSString class]]) {
+        return value;
+    } else if ([value isKindOfClass:[NSNumber class]]) {
+        return [value stringValue];
+    } else if ([value respondsToSelector:@selector(description)]) {
+        return [value description];
+    }
+    
+    return @"";
+}
+
++ (NSString *)fb_escapeXMLString:(NSString *)string {
+    if (!string) {
+        return @"";
+    }
+    
+    NSMutableString *escaped = [string mutableCopy];
+    [escaped replaceOccurrencesOfString:@"&" withString:@"&amp;" options:0 range:NSMakeRange(0, escaped.length)];
+    [escaped replaceOccurrencesOfString:@"<" withString:@"&lt;" options:0 range:NSMakeRange(0, escaped.length)];
+    [escaped replaceOccurrencesOfString:@">" withString:@"&gt;" options:0 range:NSMakeRange(0, escaped.length)];
+    [escaped replaceOccurrencesOfString:@"\"" withString:@"&quot;" options:0 range:NSMakeRange(0, escaped.length)];
+    [escaped replaceOccurrencesOfString:@"'" withString:@"&apos;" options:0 range:NSMakeRange(0, escaped.length)];
+    
+    return escaped;
+}
+
++ (NSString *)fb_indentationForDepth:(NSInteger)depth {
+    NSMutableString *indentation = [NSMutableString string];
+    for (NSInteger i = 0; i < depth; i++) {
+        [indentation appendString:@"  "];
+    }
+    return indentation;
 }
 
 @end
+
+//
+// Integration with Page Source Command
+// Add this to your page source command implementation:
+//
+
+/*
+// In your page source command method, replace the existing logic with:
+
+- (id<FBResponsePayload>)handleGetPageSource:(FBRouteRequest *)request {
+    FBApplication *application = request.session.activeApplication;
+    if (!application) {
+        return FBResponseWithStatus([FBCommandStatus invalidSessionErrorWithMessage:@"No active application"]);
+    }
+    
+    NSString *formatType = request.parameters[@"format"] ?: @"json";
+    
+    // Grid sampling parameters (can be customized via request parameters)
+    NSDictionary *samplingParams = @{
+        @"samplesX": request.parameters[@"samplesX"] ?: @(kFBInitialSamplesX),
+        @"samplesY": request.parameters[@"samplesY"] ?: @(kFBInitialSamplesY),
+        @"maxRecursionDepth": request.parameters[@"maxRecursionDepth"] ?: @(kFBMaxRecursionDepth)
+    };
+    
+    // Perform grid sampling to get snapshot tree
+    id<FBXCElementSnapshot> gridSampledTree = [application fb_gridSampledSnapshotTreeWithParameters:samplingParams];
+    
+    if (!gridSampledTree) {
+        return FBResponseWithStatus([FBCommandStatus unknownErrorWithMessage:@"Failed to generate grid sampled tree"]);
+    }
+    
+    [FBLogger logFmt:@"Grid sampled tree generated successfully"];
+    
+    if ([formatType isEqualToString:@"xml"]) {
+        NSString *xmlSource = [FBGridSampledXMLConverter xmlStringFromGridSampledSnapshot:gridSampledTree];
+        return FBResponseWithObject(xmlSource);
+    } else {
+        // For JSON format, convert snapshot tree to dictionary representation
+        NSDictionary *jsonTree = [self fb_dictionaryFromSnapshot:gridSampledTree];
+        return FBResponseWithObject(jsonTree);
+    }
+}
+
+// Helper method to convert snapshot to dictionary for JSON format
+- (NSDictionary *)fb_dictionaryFromSnapshot:(id<FBXCElementSnapshot>)snapshot {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    
+    dict[@"type"] = [FBElementTypeTransformer stringWithElementType:snapshot.elementType] ?: @"Unknown";
+    dict[@"label"] = snapshot.label ?: @"";
+    dict[@"name"] = snapshot.title ?: @"";
+    dict[@"value"] = [self fb_stringFromValue:snapshot.value];
+    dict[@"rect"] = @{
+        @"x": @(snapshot.frame.origin.x),
+        @"y": @(snapshot.frame.origin.y),
+        @"width": @(snapshot.frame.size.width),
+        @"height": @(snapshot.frame.size.height)
+    };
+    dict[@"isEnabled"] = @(snapshot.enabled);
+    dict[@"isVisible"] = @(!CGRectIsEmpty(snapshot.visibleFrame));
+    
+    if (snapshot.identifier && snapshot.identifier.length > 0) {
+        dict[@"testID"] = snapshot.identifier;
+    }
+    
+    // Add children if they exist
+    if (snapshot.children && [snapshot.children isKindOfClass:[NSArray class]] && snapshot.children.count > 0) {
+        NSMutableArray *childrenArray = [NSMutableArray array];
+        for (id<FBXCElementSnapshot> childSnapshot in snapshot.children) {
+            [childrenArray addObject:[self fb_dictionaryFromSnapshot:childSnapshot]];
+        }
+        dict[@"children"] = childrenArray;
+    }
+    
+    return dict;
+}
+
+- (NSString *)fb_stringFromValue:(id)value {
+    if (!value) return @"";
+    if ([value isKindOfClass:[NSString class]]) return value;
+    if ([value isKindOfClass:[NSNumber class]]) return [value stringValue];
+    if ([value respondsToSelector:@selector(description)]) return [value description];
+    return @"";
+}
+*/
